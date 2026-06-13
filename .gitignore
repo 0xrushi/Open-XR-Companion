@@ -15,6 +15,7 @@ captures/
 # Signing credentials
 *.jks
 *.keystore
+.signing/
 
 # IDEs
 .idea/

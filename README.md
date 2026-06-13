@@ -132,6 +132,26 @@ client/build/outputs/apk/debug/client-debug.apk
 
 Install `core-debug.apk` on the XR device and `client-debug.apk` on the phone.
 
+### Signed Release Builds
+
+Release signing is enabled when `.signing/keystore.properties` exists:
+
+```properties
+storeFile=.signing/xr-companion-release.jks
+storePassword=your-store-password
+keyAlias=xr-companion
+keyPassword=your-key-password
+```
+
+The `.signing/` directory is ignored by Git. Keep an encrypted backup of the
+keystore and its credentials because future updates must use the same key.
+
+Build the signed release APKs with:
+
+```bash
+./gradlew :core:assembleRelease :client:assembleRelease
+```
+
 ## Project Structure
 
 ```text
