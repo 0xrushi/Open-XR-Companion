@@ -15,7 +15,6 @@ JSON command protocol.
 ### Smart Companion
 
 <p align="center">
-  <img width="22%" alt="Smart Companion dashboard" src="https://github.com/user-attachments/assets/6e5b7ff6-09f1-4f9b-beb5-bafd77397506" />
   <img width="22%" alt="Smart Companion controls" src="https://github.com/user-attachments/assets/10d7f04d-4033-4627-9352-a289032d4b19" />
   <img width="22%" alt="Smart Companion remote" src="https://github.com/user-attachments/assets/0e93d5c4-ce81-4fbb-b7c5-8cffff8954db" />
   <img width="22%" alt="Smart Companion app manager" src="https://github.com/user-attachments/assets/906af105-0f03-4863-903a-28b26d7ca21c" />
