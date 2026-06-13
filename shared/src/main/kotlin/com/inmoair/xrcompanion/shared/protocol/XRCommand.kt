@@ -20,7 +20,7 @@ val xrJson = Json {
 // ---------------------------------------------------------------------------
 @Serializable
 data class XRCommand(
-    /** One of: touch | scroll | keyboard | system | apps | pairing | file | screenshot | ping */
+    /** One of: touch | scroll | keyboard | system | apps | pairing | file | screenshot | spacewalker | ping */
     val type: String,
 
     // --- touch / gesture ---

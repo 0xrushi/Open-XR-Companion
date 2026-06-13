@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.inmoair.xrcompanion.core.BuildConfig
 import com.inmoair.xrcompanion.core.MainActivity
 import com.inmoair.xrcompanion.core.R
 import com.inmoair.xrcompanion.core.XRCoreApp
@@ -128,7 +129,7 @@ class CoreForegroundService : Service() {
                 ip = ip,
                 wsPort = port,
                 battery = getBatteryLevel(),
-                version = "1.0.0",
+                version = BuildConfig.VERSION_NAME,
             )
             udpServer.start()
 
@@ -172,6 +173,7 @@ class CoreForegroundService : Service() {
             volume = if (maxVol > 0) (curVol * 100 / maxVol) else 0,
             isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC),
             connection = "connected",
+            serverVersion = BuildConfig.VERSION_NAME,
             deviceName = Build.MODEL,
             deviceModel = Build.MODEL,
         )

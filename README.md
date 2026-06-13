@@ -40,6 +40,8 @@ After the devices are paired, the phone can:
 - View battery, brightness, volume, and connection state.
 - Request a screenshot from the XR device.
 - List installed applications and apply best-effort background restrictions.
+- Control SpaceWalker zoom, rotation, and active screen count when the
+  compatible SpaceDesk client is installed on the XR device.
 
 ## Core And Client
 
@@ -58,6 +60,7 @@ Core:
 - Uses an Android accessibility service for gestures, navigation, text input,
   and screenshots.
 - Handles device controls such as volume, brightness, and app management.
+- Forwards authenticated SpaceWalker commands to the compatible SpaceDesk app.
 - Broadcasts device state to authenticated clients.
 
 Core requires Android 12 or newer (`minSdk 31`). Some controls require
@@ -75,6 +78,7 @@ Client:
 - Requests pairing and stores the approved session token.
 - Provides dashboards for connection and device state.
 - Provides touchpad, keyboard, navigation, volume, and brightness controls.
+- Provides SpaceWalker zoom, rotation, and screen-management buttons.
 - Provides an installed-app management screen.
 
 Client requires Android 10 or newer (`minSdk 29`).

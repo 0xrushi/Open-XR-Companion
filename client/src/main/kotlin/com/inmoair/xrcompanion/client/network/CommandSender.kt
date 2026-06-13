@@ -67,6 +67,16 @@ class CommandSender @Inject constructor(
     fun setAppBackground(pkg: String, allowed: Boolean) =
         send(XRCommand(type = "apps", action = "set_background_allowed", packageName = pkg, allowed = allowed))
 
+    // --- spacewalker ---
+    fun spaceWalkerZoomIn()  = send(XRCommand(type = "spacewalker", action = "zoom_in"))
+    fun spaceWalkerZoomOut() = send(XRCommand(type = "spacewalker", action = "zoom_out"))
+
+    fun spaceWalkerSetRotation(degrees: Float) =
+        send(XRCommand(type = "spacewalker", action = "set_rotation", floatValue = degrees))
+
+    fun spaceWalkerAddScreen()    = send(XRCommand(type = "spacewalker", action = "add_screen"))
+    fun spaceWalkerRemoveScreen() = send(XRCommand(type = "spacewalker", action = "remove_screen"))
+
     // --- misc ---
     fun ping() = client.send("""{"type":"ping"}""")
 

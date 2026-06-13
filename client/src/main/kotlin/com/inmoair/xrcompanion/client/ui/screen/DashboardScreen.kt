@@ -95,6 +95,18 @@ fun DashboardScreen(
                 }
             }
 
+            // SpaceWalker card (always shown; controls disabled when not connected)
+            item {
+                SpaceWalkerCard(
+                    uiState   = uiState,
+                    onZoomIn  = { viewModel.swZoomIn() },
+                    onZoomOut = { viewModel.swZoomOut() },
+                    onRotate  = { viewModel.swSetRotation(it) },
+                    onAddScreen    = { viewModel.swAddScreen() },
+                    onRemoveScreen = { viewModel.swRemoveScreen() },
+                )
+            }
+
             // Quick action row
             item { Spacer(Modifier.height(8.dp)) }
             item {
@@ -334,6 +346,196 @@ private fun QuickActionButton(
             Spacer(Modifier.height(4.dp))
             Text(label, style = MaterialTheme.typography.labelMedium,
                 color = if (enabled) TextPrimary else TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun SpaceWalkerCard(
+    uiState: DashboardUiState,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onRotate: (Float) -> Unit,
+    onAddScreen: () -> Unit,
+    onRemoveScreen: () -> Unit,
+) {
+    val connected = uiState.connectionStatus == ConnectionStatus.CONNECTED
+
+    XRCard {
+        // ── Header ──
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.ViewInAr,
+                contentDescription = null,
+                tint = if (connected) AccentBlue else TextSecondary,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("SpaceWalker", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (connected) "${uiState.swScreenCount}/3 screens active"
+                    else "Connect to XR glasses to control",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (connected) StatusGreen else TextSecondary,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = DividerColor, thickness = 0.5.dp)
+        Spacer(Modifier.height(16.dp))
+
+        // ── Zoom row ──
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.ZoomIn,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Zoom",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = onZoomOut,
+                enabled = connected,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, if (connected) AccentBlueDim else DividerColor
+                ),
+            ) {
+                Text(
+                    "−",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (connected) AccentBlue else TextSecondary,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = onZoomIn,
+                enabled = connected,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentBlue,
+                    disabledContainerColor = DividerColor,
+                ),
+            ) {
+                Text("+", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // ── Rotation slider ──
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.RotateRight,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Rotation",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${uiState.swRotation.toInt()}°",
+                style = MaterialTheme.typography.labelLarge,
+                color = AccentBlue,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Slider(
+            value = uiState.swRotation,
+            onValueChange = { if (connected) onRotate(it) },
+            valueRange = -180f..180f,
+            enabled = connected,
+            colors = SliderDefaults.colors(
+                thumbColor = AccentBlue,
+                activeTrackColor = AccentBlue,
+                inactiveTrackColor = DividerColor,
+                disabledThumbColor = DividerColor,
+                disabledActiveTrackColor = DividerColor,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = DividerColor, thickness = 0.5.dp)
+        Spacer(Modifier.height(16.dp))
+
+        // ── Screen management row ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                Icons.Default.Splitscreen,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Screens",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            // Screen count indicator dots
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(3) { i ->
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(
+                                if (connected && i < uiState.swScreenCount) AccentBlue
+                                else DividerColor
+                            )
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onRemoveScreen,
+                enabled = connected && uiState.swScreenCount > 1,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (connected && uiState.swScreenCount > 1) StatusRed else DividerColor,
+                ),
+            ) {
+                Text(
+                    "− Screen",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (connected && uiState.swScreenCount > 1) StatusRed
+                    else TextSecondary,
+                )
+            }
+            Button(
+                onClick = onAddScreen,
+                enabled = connected && uiState.swScreenCount < 3,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentBlue,
+                    disabledContainerColor = DividerColor,
+                ),
+            ) {
+                Text("+ Screen", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }

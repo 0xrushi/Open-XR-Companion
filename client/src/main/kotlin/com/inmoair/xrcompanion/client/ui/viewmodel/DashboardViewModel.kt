@@ -26,6 +26,9 @@ data class DashboardUiState(
     val isScanning: Boolean = false,
     val brightness: Float = 0.5f,
     val volume: Float = 0.5f,
+    // SpaceWalker
+    val swRotation: Float = 0f,
+    val swScreenCount: Int = 1,
 )
 
 @HiltViewModel
@@ -44,7 +47,6 @@ class DashboardViewModel @Inject constructor(
             wsClient.status.collectLatest { status ->
                 _uiState.value = _uiState.value.copy(connectionStatus = status)
                 if (status == ConnectionStatus.CONNECTED) {
-                    // Save token
                     deviceRepository.saveSessionToken(wsClient.lastApprovedToken)
                 }
             }
@@ -69,8 +71,6 @@ class DashboardViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(isScanning = scanning)
             }
         }
-        // Auto-connect to last known device — only runs ONCE at startup via .first()
-        // so saving a new device later does NOT re-trigger a second connect attempt.
         viewModelScope.launch {
             val dm    = deviceRepository.lastDevice.first()
             val token = deviceRepository.sessionToken.first()
@@ -85,13 +85,10 @@ class DashboardViewModel @Inject constructor(
 
     fun connectToDevice(device: DiscoveredDevice) {
         viewModelScope.launch {
-            // Cancel any pending reconnect first
             wsClient.disconnect()
             discovery.stopScan()
-            // Persist for future sessions
             deviceRepository.saveLastDevice(device.message)
             val token = deviceRepository.sessionToken.first()
-            // Update UI immediately so the button reflects "Connecting"
             _uiState.value = _uiState.value.copy(connectedDevice = device)
             wsClient.connect(device.message, token)
         }
@@ -110,5 +107,29 @@ class DashboardViewModel @Inject constructor(
     fun setVolume(value: Float) {
         _uiState.value = _uiState.value.copy(volume = value)
         commandSender.setVolume(value)
+    }
+
+    // ---- SpaceWalker ----
+    // Commands are sent via WebSocket to xr-companion core on the glasses.
+    // The core then forwards them as local broadcasts to SpaceDesk on the glasses.
+
+    fun swZoomIn() { commandSender.spaceWalkerZoomIn() }
+    fun swZoomOut() { commandSender.spaceWalkerZoomOut() }
+
+    fun swSetRotation(degrees: Float) {
+        _uiState.value = _uiState.value.copy(swRotation = degrees)
+        commandSender.spaceWalkerSetRotation(degrees)
+    }
+
+    fun swAddScreen() {
+        val next = (_uiState.value.swScreenCount + 1).coerceAtMost(3)
+        _uiState.value = _uiState.value.copy(swScreenCount = next)
+        commandSender.spaceWalkerAddScreen()
+    }
+
+    fun swRemoveScreen() {
+        val next = (_uiState.value.swScreenCount - 1).coerceAtLeast(1)
+        _uiState.value = _uiState.value.copy(swScreenCount = next)
+        commandSender.spaceWalkerRemoveScreen()
     }
 }
