@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XR Core</string>
+    <string name="accessibility_service_description">Allows the XR Companion phone app to control input, gestures, and navigation on this device over Wi-Fi.</string>
+    <string name="notification_channel_name">XR Core Server</string>
+    <string name="notification_channel_desc">Shows the local Wi-Fi server status for XR Companion</string>
+    <string name="notification_title">XR Core Active</string>
+    <string name="notification_text_running">Wi-Fi server running on port %1$d</string>
+    <string name="notification_text_connected">Phone connected — %1$s</string>
+</resources>

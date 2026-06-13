@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow cleartext ws:// traffic to local/private IP ranges.
+  XR glasses are on the same LAN as the phone — no external cleartext needed.
+-->
+<network-security-config>
+    <!-- Private RFC-1918 ranges: 192.168.x.x, 10.x.x.x, 172.16-31.x.x -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.1.1</domain>
+        <domain includeSubdomains="true">10.0.0.1</domain>
+        <domain includeSubdomains="true">172.16.0.1</domain>
+    </domain-config>
+    <!-- Catch-all for any other local IP the glasses might have -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

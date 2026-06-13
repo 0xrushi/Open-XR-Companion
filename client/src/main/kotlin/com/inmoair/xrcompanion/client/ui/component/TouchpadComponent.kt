@@ -1,0 +1,211 @@
+package com.inmoair.xrcompanion.client.ui.component
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import com.inmoair.xrcompanion.client.ui.theme.TouchpadBorder
+import com.inmoair.xrcompanion.client.ui.theme.TouchpadSurface
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * Touchpad surface — single unified gesture handler.
+ *
+ * WHY: Two competing pointerInput blocks (detectDragGestures + detectTapGestures) both
+ * fire on every touch. The drag block was calling onMove on every pixel, which dispatched
+ * 1ms AccessibilityGestures on the Core — Android interprets those as taps, causing
+ * "random clicks all over the screen". This rewrite uses ONE awaitEachGesture block that
+ * decides tap vs swipe vs long-press based on movement distance, with no continuous
+ * move events emitted.
+ *
+ * Gesture rules:
+ *  - Finger down + up, no movement          → onTap
+ *  - Two quick taps close together           → onDoubleTap
+ *  - Finger held without movement            → onLongPress
+ *  - Finger moves > touchSlop then lifts     → onSwipe(startNorm → endNorm)
+ *
+ * Coordinates are normalised [0..1] relative to the touchpad dimensions.
+ */
+@Composable
+fun TouchpadSurface(
+    modifier: Modifier = Modifier,
+    onTap: (nx: Float, ny: Float) -> Unit,
+    onDoubleTap: (nx: Float, ny: Float) -> Unit,
+    onLongPress: (nx: Float, ny: Float) -> Unit,
+    onSwipe: (x1: Float, y1: Float, x2: Float, y2: Float) -> Unit,
+) {
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    val scope = rememberCoroutineScope()
+
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var lastTapPos  by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .onSizeChanged { size = it }
+            .background(TouchpadSurface, RoundedCornerShape(16.dp))
+            .border(1.dp, TouchpadBorder, RoundedCornerShape(16.dp))
+            .pointerInput(Unit) {
+                val dragSlop    = viewConfiguration.touchSlop
+                val longPressMs = viewConfiguration.longPressTimeoutMillis
+                val doubleTapMs = viewConfiguration.doubleTapTimeoutMillis
+
+                awaitEachGesture {
+                    val down      = awaitFirstDown(requireUnconsumed = false)
+                    val startPos  = down.position
+                    var curPos    = startPos
+                    var isDrag    = false
+                    var longFired = false
+
+                    // Long-press fires if finger sits still long enough
+                    var lpJob: Job? = scope.launch {
+                        delay(longPressMs)
+                        if (!isDrag) {
+                            longFired = true
+                            val w = size.width.coerceAtLeast(1).toFloat()
+                            val h = size.height.coerceAtLeast(1).toFloat()
+                            onLongPress(
+                                (startPos.x / w).coerceIn(0f, 1f),
+                                (startPos.y / h).coerceIn(0f, 1f),
+                            )
+                        }
+                    }
+
+                    try {
+                        while (true) {
+                            val event  = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                            if (change.pressed) {
+                                curPos = change.position
+                                val dist = (curPos - startPos).getDistance()
+                                if (!isDrag && dist > dragSlop) {
+                                    isDrag = true
+                                    lpJob?.cancel()   // started moving → not a long press
+                                    lpJob = null
+                                }
+                            } else {
+                                change.consume()
+                                break
+                            }
+                        }
+                    } finally {
+                        lpJob?.cancel()
+                    }
+
+                    if (longFired) return@awaitEachGesture
+
+                    val w  = size.width.coerceAtLeast(1).toFloat()
+                    val h  = size.height.coerceAtLeast(1).toFloat()
+
+                    if (isDrag) {
+                        // ── Swipe: send start → end, let Core inject the gesture ──
+                        onSwipe(
+                            (startPos.x / w).coerceIn(0f, 1f),
+                            (startPos.y / h).coerceIn(0f, 1f),
+                            (curPos.x / w).coerceIn(0f, 1f),
+                            (curPos.y / h).coerceIn(0f, 1f),
+                        )
+                    } else {
+                        // ── Tap or double-tap ─────────────────────────────────────
+                        val now      = System.currentTimeMillis()
+                        val nx       = (startPos.x / w).coerceIn(0f, 1f)
+                        val ny       = (startPos.y / h).coerceIn(0f, 1f)
+                        val prevAge  = now - lastTapTime
+                        val prevDist = (startPos - lastTapPos).getDistance()
+
+                        if (prevAge < doubleTapMs && prevDist < dragSlop * 4) {
+                            lastTapTime = 0L        // reset — no triple-tap
+                            onDoubleTap(nx, ny)
+                        } else {
+                            lastTapTime = now
+                            lastTapPos  = startPos
+                            onTap(nx, ny)
+                        }
+                    }
+                }
+            }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scroll strips
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun VerticalScrollStrip(
+    modifier: Modifier = Modifier,
+    onScroll: (delta: Int) -> Unit,
+) {
+    var lastY by remember { mutableFloatStateOf(0f) }
+    Box(
+        modifier = modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .background(TouchpadSurface, RoundedCornerShape(14.dp))
+            .border(1.dp, TouchpadBorder, RoundedCornerShape(14.dp))
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    lastY = down.position.y
+                    while (true) {
+                        val event  = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.pressed) {
+                            val dy = change.position.y - lastY
+                            lastY  = change.position.y
+                            if (dy != 0f) onScroll(-(dy * 2).toInt())
+                            change.consume()
+                        } else {
+                            change.consume(); break
+                        }
+                    }
+                }
+            }
+    )
+}
+
+@Composable
+fun HorizontalScrollStrip(
+    modifier: Modifier = Modifier,
+    onScroll: (delta: Int) -> Unit,
+) {
+    var lastX by remember { mutableFloatStateOf(0f) }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .background(TouchpadSurface, RoundedCornerShape(14.dp))
+            .border(1.dp, TouchpadBorder, RoundedCornerShape(14.dp))
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    lastX = down.position.x
+                    while (true) {
+                        val event  = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.pressed) {
+                            val dx = change.position.x - lastX
+                            lastX  = change.position.x
+                            if (dx != 0f) onScroll((dx * 2).toInt())
+                            change.consume()
+                        } else {
+                            change.consume(); break
+                        }
+                    }
+                }
+            }
+    )
+}
