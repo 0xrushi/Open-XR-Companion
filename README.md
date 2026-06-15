@@ -201,3 +201,7 @@ Build the signed release APKs with:
 | UDP discovery | `8767` |
 
 The WebSocket port and XR device name can be changed in the Core settings.
+
+## License
+
+Open XR Companion is available under the [MIT License](LICENSE).
