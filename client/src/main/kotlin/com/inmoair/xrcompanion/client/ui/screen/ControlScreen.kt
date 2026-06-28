@@ -579,6 +579,10 @@ private fun ColumnScope.TouchpadTab(
             onLongPress       = { nx, ny -> viewModel.onLongPress(nx, ny) },
             onSwipe           = { x1, y1, x2, y2 -> viewModel.onSwipe(x1, y1, x2, y2) },
             onCursorMove      = { dx, dy -> viewModel.moveCursorBy(dx, dy) },
+            onCursorScroll    = { dx, dy ->
+                if (dy != 0) viewModel.onScrollV(dy)
+                if (dx != 0) viewModel.onScrollH(dx)
+            },
             onCursorTap       = { viewModel.cursorTap() },
             onCursorDoubleTap = { viewModel.cursorDoubleTap() },
             onCursorLongPress = { viewModel.cursorLongPress() },

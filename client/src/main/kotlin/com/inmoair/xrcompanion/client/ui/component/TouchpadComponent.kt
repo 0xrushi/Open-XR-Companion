@@ -36,6 +36,7 @@ enum class TouchpadMode { CURSOR, DIRECT }
  *   Finger movement nudges a virtual cursor by a *delta*; the glasses show the cursor
  *   moving. Taps act on wherever the cursor currently sits, not where you touched.
  *    - Finger drag                         → onCursorMove(dxNorm, dyNorm) continuously
+ *    - Two-finger drag                     → onCursorScroll(dx, dy) continuously
  *    - Finger down + up, no movement       → onCursorTap()
  *    - Two quick taps                      → onCursorDoubleTap()
  *    - Finger held still                   → onCursorLongPress()
@@ -53,6 +54,7 @@ fun TouchpadSurface(
     onSwipe: (x1: Float, y1: Float, x2: Float, y2: Float) -> Unit,
     // Cursor-mode callbacks
     onCursorMove: (dxNorm: Float, dyNorm: Float) -> Unit = { _, _ -> },
+    onCursorScroll: (dx: Int, dy: Int) -> Unit = { _, _ -> },
     onCursorTap: () -> Unit = {},
     onCursorDoubleTap: () -> Unit = {},
     onCursorLongPress: () -> Unit = {},
@@ -81,6 +83,7 @@ fun TouchpadSurface(
                     var prevPos   = startPos          // for incremental cursor deltas
                     var isDrag    = false
                     var longFired = false
+                    var twoFingerScroll = false
 
                     // Long-press fires if finger sits still long enough
                     var lpJob: Job? = scope.launch {
@@ -103,6 +106,34 @@ fun TouchpadSurface(
                     try {
                         while (true) {
                             val event  = awaitPointerEvent()
+                            val pressedChanges = event.changes.filter { it.pressed }
+                            if (pressedChanges.isEmpty()) {
+                                event.changes.forEach { it.consume() }
+                                break
+                            }
+
+                            if (mode == TouchpadMode.CURSOR && pressedChanges.size >= 2) {
+                                twoFingerScroll = true
+                                isDrag = true
+                                lpJob?.cancel()
+                                lpJob = null
+
+                                val pair = pressedChanges.take(2)
+                                val curCentroid = Offset(
+                                    (pair[0].position.x + pair[1].position.x) / 2f,
+                                    (pair[0].position.y + pair[1].position.y) / 2f,
+                                )
+                                val prevCentroid = Offset(
+                                    (pair[0].previousPosition.x + pair[1].previousPosition.x) / 2f,
+                                    (pair[0].previousPosition.y + pair[1].previousPosition.y) / 2f,
+                                )
+                                val dx = ((curCentroid.x - prevCentroid.x) * 2f).toInt()
+                                val dy = (-(curCentroid.y - prevCentroid.y) * 2f).toInt()
+                                if (dx != 0 || dy != 0) onCursorScroll(dx, dy)
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
 
                             if (change.pressed) {
@@ -139,7 +170,7 @@ fun TouchpadSurface(
 
                     if (mode == TouchpadMode.CURSOR) {
                         // Drag already moved the cursor; only a stationary touch is a click.
-                        if (!isDrag) {
+                        if (!isDrag && !twoFingerScroll) {
                             val now     = System.currentTimeMillis()
                             val prevAge = now - lastTapTime
                             if (prevAge < doubleTapMs) {

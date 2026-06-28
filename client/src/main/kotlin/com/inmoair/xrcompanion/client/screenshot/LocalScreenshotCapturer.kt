@@ -26,6 +26,9 @@ object LocalScreenshotCapturer {
     suspend fun capture(context: Context, resultCode: Int, data: Intent): Bitmap {
         val appContext = context.applicationContext
         MediaProjectionService.start(appContext)
+        withTimeout(2_000L) {
+            MediaProjectionService.awaitForegroundReady()
+        }
 
         val projectionManager = appContext.getSystemService(MediaProjectionManager::class.java)
         val projection = projectionManager.getMediaProjection(resultCode, data)
