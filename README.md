@@ -122,6 +122,38 @@ Android and device-vendor restrictions may prevent some system actions. App
 background restriction currently records the requested state and attempts to
 stop the target process; it is not persistent OS-level process enforcement.
 
+### Enable Core Accessibility With ADB
+
+If ADB debugging is enabled on the XR device, you can enable the XR Core
+accessibility service in one command.
+
+First find the XR device serial:
+
+```bash
+adb devices -l
+```
+
+For a debug Core APK, run:
+
+```bash
+adb -s XR_SERIAL shell 'pkg=com.inmoair.xrcompanion.core.debug; svc=com.inmoair.xrcompanion.core.accessibility.XRAccessibilityService; component="$pkg/$svc"; current=$(settings get secure enabled_accessibility_services); if [ "$current" = "null" ] || [ -z "$current" ]; then settings put secure enabled_accessibility_services "$component"; elif echo ":$current:" | grep -q ":$component:"; then true; else settings put secure enabled_accessibility_services "$current:$component"; fi; settings put secure accessibility_enabled 1'
+```
+
+For a release Core APK, run:
+
+```bash
+adb -s XR_SERIAL shell 'pkg=com.inmoair.xrcompanion.core; svc=com.inmoair.xrcompanion.core.accessibility.XRAccessibilityService; component="$pkg/$svc"; current=$(settings get secure enabled_accessibility_services); if [ "$current" = "null" ] || [ -z "$current" ]; then settings put secure enabled_accessibility_services "$component"; elif echo ":$current:" | grep -q ":$component:"; then true; else settings put secure enabled_accessibility_services "$current:$component"; fi; settings put secure accessibility_enabled 1'
+```
+
+Verify:
+
+```bash
+adb -s XR_SERIAL shell settings get secure enabled_accessibility_services
+```
+
+If the device blocks secure-settings writes, enable **XR Companion Input**
+manually in Android Settings > Accessibility.
+
 ## Build
 
 Requirements:
