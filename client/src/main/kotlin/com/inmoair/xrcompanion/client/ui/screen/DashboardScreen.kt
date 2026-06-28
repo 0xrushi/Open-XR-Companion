@@ -31,6 +31,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel,
     onNavigateControl: () -> Unit,
     onNavigateApps: () -> Unit,
+    onNavigateFiles: () -> Unit,
     onNavigateSettings: () -> Unit,
 ) {
     var showDeviceSheet by remember { mutableStateOf(false) }
@@ -113,6 +114,7 @@ fun DashboardScreen(
                 QuickActionsRow(
                     onControl  = onNavigateControl,
                     onApps     = onNavigateApps,
+                    onFiles    = onNavigateFiles,
                     onSettings = onNavigateSettings,
                     connected  = uiState.connectionStatus == ConnectionStatus.CONNECTED,
                 )
@@ -285,6 +287,7 @@ private fun SliderCard(
 private fun QuickActionsRow(
     onControl: () -> Unit,
     onApps: () -> Unit,
+    onFiles: () -> Unit,
     onSettings: () -> Unit,
     connected: Boolean,
 ) {
@@ -303,6 +306,13 @@ private fun QuickActionsRow(
             icon  = Icons.Default.Apps,
             label = "App Manager",
             onClick = onApps,
+            enabled = connected,
+            modifier = Modifier.weight(1f),
+        )
+        QuickActionButton(
+            icon = Icons.Default.Folder,
+            label = "Files",
+            onClick = onFiles,
             enabled = connected,
             modifier = Modifier.weight(1f),
         )

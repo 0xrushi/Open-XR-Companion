@@ -22,8 +22,6 @@ fun ClientSettingsScreen(
 ) {
     val touchSensitivity by deviceRepository.touchSensitivity.collectAsState(1f)
     val scrollSpeed      by deviceRepository.scrollSpeed.collectAsState(1f)
-    val airMouseSpeed    by deviceRepository.airMouseSpeed.collectAsState(1f)
-    val pointerSpeed     by deviceRepository.pointerSpeed.collectAsState(1f)
 
     Scaffold(
         topBar = {
@@ -51,16 +49,6 @@ fun ClientSettingsScreen(
                     }
                     SettingsSlider("Scroll Speed", scrollSpeed, 0.2f, 3f) {
                         // deviceRepository.setScrollSpeed(it)
-                    }
-                    SettingsSlider("Pointer Speed", pointerSpeed, 0.2f, 3f) {
-                        // deviceRepository.setPointerSpeed(it)
-                    }
-                }
-            }
-            item {
-                SettingsCard("Air Mouse") {
-                    SettingsSlider("Air Mouse Speed", airMouseSpeed, 0.2f, 3f) {
-                        // deviceRepository.setAirMouseSpeed(it)
                     }
                 }
             }

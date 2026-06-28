@@ -93,6 +93,33 @@ class CommandSender @Inject constructor(
 
     fun requestScreenshot() = send(XRCommand(type = "screenshot", action = "capture"))
 
+    // --- files ---
+    fun requestFileList(path: String = "") =
+        send(XRCommand(type = "file", action = "list", path = path))
+
+    fun requestFileChunk(path: String, offset: Long = 0L, chunkSize: Int = 128 * 1024) =
+        send(
+            XRCommand(
+                type = "file",
+                action = "read",
+                path = path,
+                offset = offset,
+                chunkSize = chunkSize,
+            )
+        )
+
+    fun uploadFileChunk(path: String, offset: Long, base64Data: String, eof: Boolean) =
+        send(
+            XRCommand(
+                type = "file",
+                action = "write",
+                path = path,
+                offset = offset,
+                data = base64Data,
+                eof = eof,
+            )
+        )
+
     private fun send(cmd: XRCommand) { client.sendCommand(cmd) }
     private fun now() = System.currentTimeMillis()
 }

@@ -10,6 +10,10 @@ import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import com.inmoair.xrcompanion.core.accessibility.XRAccessibilityService
+import com.inmoair.xrcompanion.shared.protocol.FileChunkResponse
+import com.inmoair.xrcompanion.shared.protocol.FileEntry
+import com.inmoair.xrcompanion.shared.protocol.FileListResponse
+import com.inmoair.xrcompanion.shared.protocol.FileOperationResponse
 import com.inmoair.xrcompanion.shared.protocol.ScreenshotResponse
 import com.inmoair.xrcompanion.shared.protocol.XRCommand
 import com.inmoair.xrcompanion.shared.protocol.xrJson
@@ -17,6 +21,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import org.java_websocket.WebSocket
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.RandomAccessFile
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -105,8 +110,12 @@ class SystemCommandHandler @Inject constructor(
 
     fun handleFile(cmd: XRCommand, socket: WebSocket) {
         when (cmd.action) {
-            "list" -> listDirectory(cmd.path, socket)
-            else   -> Log.w(TAG, "Unimplemented file action: ${cmd.action}")
+            "list"   -> listDirectory(cmd.path, socket)
+            "read"   -> readFile(cmd, socket)
+            "write"  -> writeFile(cmd, socket)
+            "mkdir"  -> makeDirectory(cmd.path, socket)
+            "delete" -> deletePath(cmd.path, socket)
+            else     -> Log.w(TAG, "Unimplemented file action: ${cmd.action}")
         }
     }
 
@@ -175,33 +184,190 @@ class SystemCommandHandler @Inject constructor(
 
     private fun listDirectory(path: String, socket: WebSocket) {
         try {
-            val dir = if (path.isEmpty()) android.os.Environment.getExternalStorageDirectory()
-                      else File(path)
+            val dir = resolveFile(path, directory = true)
             if (!dir.exists() || !dir.isDirectory) {
-                socket.send("""{"type":"file_list","path":"$path","entries":[],"error":"Not a directory"}""")
+                socket.sendFileList(path = dir.absolutePath, error = "Not a directory")
                 return
             }
-            val entries = dir.listFiles()?.map { f ->
-                mapOf(
-                    "name" to f.name,
-                    "path" to f.absolutePath,
-                    "isDirectory" to f.isDirectory,
-                    "size" to f.length(),
-                    "lastModified" to f.lastModified(),
-                )
-            } ?: emptyList()
-            val json = xrJson.encodeToString(
-                kotlinx.serialization.serializer(),
-                mapOf(
-                    "type" to "file_list",
-                    "path" to dir.absolutePath,
-                    "entries" to entries,
-                    "error" to "",
+            val entries = dir.listFiles()
+                ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
+                ?.map { f ->
+                    FileEntry(
+                        name = f.name,
+                        path = f.absolutePath,
+                        isDirectory = f.isDirectory,
+                        size = f.length(),
+                        lastModified = f.lastModified(),
+                        mimeType = guessMimeType(f),
+                    )
+                } ?: emptyList()
+            socket.sendFileList(path = dir.absolutePath, entries = entries)
+        } catch (e: Exception) {
+            socket.sendFileList(path = path, error = e.message ?: "List failed")
+        }
+    }
+
+    private fun readFile(cmd: XRCommand, socket: WebSocket) {
+        try {
+            val file = resolveFile(cmd.path)
+            if (!file.exists() || !file.isFile) {
+                socket.sendFileChunk(path = file.absolutePath, error = "Not a file")
+                return
+            }
+
+            val offset = cmd.offset.coerceIn(0L, file.length())
+            val chunkSize = cmd.chunkSize.coerceIn(4 * 1024, 512 * 1024)
+            val buffer = ByteArray(chunkSize)
+            val bytesRead = RandomAccessFile(file, "r").use { raf ->
+                raf.seek(offset)
+                raf.read(buffer)
+            }.coerceAtLeast(0)
+            val data = if (bytesRead > 0) {
+                Base64.encodeToString(buffer.copyOf(bytesRead), Base64.NO_WRAP)
+            } else ""
+            val nextOffset = offset + bytesRead
+            socket.sendFileChunk(
+                path = file.absolutePath,
+                offset = offset,
+                size = file.length(),
+                data = data,
+                eof = nextOffset >= file.length(),
+            )
+        } catch (e: Exception) {
+            socket.sendFileChunk(path = cmd.path, error = e.message ?: "Read failed")
+        }
+    }
+
+    private fun writeFile(cmd: XRCommand, socket: WebSocket) {
+        try {
+            val file = resolveFile(cmd.path)
+            file.parentFile?.mkdirs()
+            val bytes = if (cmd.data.isNotEmpty()) Base64.decode(cmd.data, Base64.NO_WRAP) else ByteArray(0)
+            RandomAccessFile(file, "rw").use { raf ->
+                if (cmd.offset == 0L) raf.setLength(0L)
+                raf.seek(cmd.offset.coerceAtLeast(0L))
+                raf.write(bytes)
+            }
+            socket.sendFileResult(
+                action = "write",
+                path = file.absolutePath,
+                status = if (cmd.eof) "complete" else "ok",
+                message = if (cmd.eof) "Upload complete" else "Chunk written",
+            )
+        } catch (e: Exception) {
+            socket.sendFileResult(
+                action = "write",
+                path = cmd.path,
+                status = "failed",
+                message = e.message ?: "Write failed",
+            )
+        }
+    }
+
+    private fun makeDirectory(path: String, socket: WebSocket) {
+        val dir = resolveFile(path, directory = true)
+        val ok = dir.mkdirs() || dir.isDirectory
+        socket.sendFileResult(
+            action = "mkdir",
+            path = dir.absolutePath,
+            status = if (ok) "complete" else "failed",
+            message = if (ok) "Folder created" else "Folder create failed",
+        )
+    }
+
+    private fun deletePath(path: String, socket: WebSocket) {
+        val file = resolveFile(path)
+        val ok = if (file.isDirectory) file.deleteRecursively() else file.delete()
+        socket.sendFileResult(
+            action = "delete",
+            path = file.absolutePath,
+            status = if (ok) "complete" else "failed",
+            message = if (ok) "Deleted" else "Delete failed",
+        )
+    }
+
+    private fun resolveFile(path: String, directory: Boolean = false): File {
+        if (path.isBlank()) return android.os.Environment.getExternalStorageDirectory()
+        val file = File(path)
+        if (file.isAbsolute) return file
+        val downloads = android.os.Environment.getExternalStoragePublicDirectory(
+            android.os.Environment.DIRECTORY_DOWNLOADS,
+        )
+        val base = File(downloads, "XRCompanion")
+        return if (directory && path == ".") base else File(base, path)
+    }
+
+    private fun guessMimeType(file: File): String {
+        if (file.isDirectory) return ""
+        return android.webkit.MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(file.extension.lowercase())
+            ?: "application/octet-stream"
+    }
+
+    private fun WebSocket.sendFileList(
+        path: String,
+        entries: List<FileEntry> = emptyList(),
+        error: String = "",
+    ) {
+        try {
+            send(
+                xrJson.encodeToString(
+                    FileListResponse.serializer(),
+                    FileListResponse(path = path, entries = entries, error = error),
                 )
             )
-            socket.send(json)
         } catch (e: Exception) {
-            socket.send("""{"type":"file_list","path":"$path","entries":[],"error":"${e.message}"}""")
+            Log.w(TAG, "File list send failed: ${e.message}")
+        }
+    }
+
+    private fun WebSocket.sendFileChunk(
+        path: String,
+        offset: Long = 0L,
+        size: Long = 0L,
+        data: String = "",
+        eof: Boolean = false,
+        error: String = "",
+    ) {
+        try {
+            send(
+                xrJson.encodeToString(
+                    FileChunkResponse.serializer(),
+                    FileChunkResponse(
+                        path = path,
+                        offset = offset,
+                        size = size,
+                        data = data,
+                        eof = eof,
+                        error = error,
+                    ),
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "File chunk send failed: ${e.message}")
+        }
+    }
+
+    private fun WebSocket.sendFileResult(
+        action: String,
+        path: String,
+        status: String,
+        message: String,
+    ) {
+        try {
+            send(
+                xrJson.encodeToString(
+                    FileOperationResponse.serializer(),
+                    FileOperationResponse(
+                        action = action,
+                        path = path,
+                        status = status,
+                        message = message,
+                    ),
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "File result send failed: ${e.message}")
         }
     }
 }

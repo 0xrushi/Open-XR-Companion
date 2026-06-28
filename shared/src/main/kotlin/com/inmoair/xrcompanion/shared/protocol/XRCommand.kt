@@ -65,6 +65,7 @@ data class XRCommand(
     val offset: Long = 0L,
     val chunkSize: Int = 65536,
     val data: String = "",          // base64-encoded file chunk
+    val eof: Boolean = false,
 
     // --- screenshot ---
     val format: String = "jpeg",    // jpeg | png
@@ -133,6 +134,27 @@ data class FileListResponse(
     val path: String = "",
     val entries: List<FileEntry> = emptyList(),
     val error: String = "",
+)
+
+@Serializable
+data class FileChunkResponse(
+    val type: String = "file_chunk",
+    val path: String = "",
+    val offset: Long = 0L,
+    val size: Long = 0L,
+    val data: String = "",
+    val eof: Boolean = false,
+    val error: String = "",
+)
+
+@Serializable
+data class FileOperationResponse(
+    val type: String = "file_result",
+    val action: String = "",
+    val path: String = "",
+    /** ok | complete | failed */
+    val status: String = "ok",
+    val message: String = "",
 )
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ package com.inmoair.xrcompanion.client
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.hardware.SensorManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,9 +47,12 @@ class MainActivity : ComponentActivity() {
 
     private fun requestPermissionsIfNeeded() {
         val toRequest = mutableListOf<String>()
-        val perms = listOf(
+        val perms = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms += Manifest.permission.POST_NOTIFICATIONS
+        }
         perms.forEach { perm ->
             if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
                 toRequest.add(perm)

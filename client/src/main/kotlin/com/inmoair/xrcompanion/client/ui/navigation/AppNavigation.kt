@@ -12,11 +12,13 @@ import com.inmoair.xrcompanion.client.ui.screen.*
 import com.inmoair.xrcompanion.client.ui.viewmodel.AppManagerViewModel
 import com.inmoair.xrcompanion.client.ui.viewmodel.ControlViewModel
 import com.inmoair.xrcompanion.client.ui.viewmodel.DashboardViewModel
+import com.inmoair.xrcompanion.client.ui.viewmodel.FileManagerViewModel
 
 object Routes {
     const val DASHBOARD   = "dashboard"
     const val CONTROL     = "control"
     const val APP_MANAGER = "app_manager"
+    const val FILE_MANAGER = "file_manager"
     const val SETTINGS    = "settings"
 }
 
@@ -35,6 +37,7 @@ fun AppNavigation(
                 viewModel       = vm,
                 onNavigateControl  = { navController.navigate(Routes.CONTROL) },
                 onNavigateApps     = { navController.navigate(Routes.APP_MANAGER) },
+                onNavigateFiles    = { navController.navigate(Routes.FILE_MANAGER) },
                 onNavigateSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
@@ -56,6 +59,16 @@ fun AppNavigation(
                 uiState   = uiState,
                 viewModel = vm,
                 onBack    = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.FILE_MANAGER) {
+            val vm: FileManagerViewModel = hiltViewModel()
+            val uiState by vm.uiState.collectAsState()
+            FileManagerScreen(
+                uiState = uiState,
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
             )
         }
 

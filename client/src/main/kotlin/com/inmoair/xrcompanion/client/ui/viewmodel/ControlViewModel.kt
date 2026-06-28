@@ -4,10 +4,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -23,8 +19,6 @@ import com.inmoair.xrcompanion.client.voice.VoiceInputManager
 import com.inmoair.xrcompanion.client.voice.VoiceState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,14 +28,13 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-enum class ControlTab { TOUCHPAD, AIR_MOUSE, REMOTE }
+enum class ControlTab { TOUCHPAD, REMOTE }
+enum class ScreenshotSource { REMOTE, LOCAL_PHONE }
 
 data class ControlUiState(
     val activeTab: ControlTab = ControlTab.TOUCHPAD,
     val voiceState: VoiceState = VoiceState.IDLE,
     val voiceText: String = "",
-    val isAirMouseActive: Boolean = false,
-    val pointerSpeed: Float = 1f,
     val scrollSpeed: Float = 1f,
     // Touchpad mode: true = relative cursor/trackpad (glasses cursor moves);
     // false = direct absolute touch (mobile mirror).
@@ -51,6 +44,7 @@ data class ControlUiState(
     val isCapturingScreenshot: Boolean = false,
     val screenshotBitmap: Bitmap? = null,
     val screenshotError: String? = null,
+    val screenshotSource: ScreenshotSource = ScreenshotSource.REMOTE,
     // Sleep/wake toggle (client-side best-guess; resets on app restart)
     val isSleeping: Boolean = false,
 )
@@ -60,7 +54,6 @@ class ControlViewModel @Inject constructor(
     private val commandSender: CommandSender,
     private val wsClient: XRWebSocketClient,
     private val voiceManager: VoiceInputManager,
-    private val sensorManager: SensorManager,
     private val deviceRepository: DeviceRepository,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -70,15 +63,6 @@ class ControlViewModel @Inject constructor(
 
     val customButtons: StateFlow<List<CustomButton>> = deviceRepository.customButtons
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    private var airMouseJob: Job? = null
-    private var gyroX = 0f; private var gyroY = 0f
-    private val gyroListener = object : SensorEventListener {
-        override fun onSensorChanged(event: SensorEvent) {
-            gyroX = event.values[0]; gyroY = event.values[1]
-        }
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-    }
 
     init {
         viewModelScope.launch {
@@ -103,6 +87,7 @@ class ControlViewModel @Inject constructor(
                             isCapturingScreenshot = false,
                             screenshotBitmap = bmp,
                             screenshotError = if (bmp == null) "Failed to decode image" else null,
+                            screenshotSource = ScreenshotSource.REMOTE,
                         )
                     }
                     else -> _uiState.value = _uiState.value.copy(
@@ -186,34 +171,6 @@ class ControlViewModel @Inject constructor(
     fun stopVoice()  = voiceManager.stop()
     fun cancelVoice() = voiceManager.cancel()
 
-    // --- air mouse ---
-    fun startAirMouse() {
-        val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) ?: return
-        sensorManager.registerListener(gyroListener, gyro, SensorManager.SENSOR_DELAY_GAME)
-        _uiState.value = _uiState.value.copy(isAirMouseActive = true)
-        var curX = 0.5f; var curY = 0.5f
-        airMouseJob = viewModelScope.launch {
-            while (true) {
-                delay(16) // ~60Hz
-                val speed = _uiState.value.pointerSpeed * 0.003f
-                curX = (curX + gyroY * speed).coerceIn(0f, 1f)
-                curY = (curY + gyroX * speed).coerceIn(0f, 1f)
-                commandSender.sendMove(curX, curY)
-            }
-        }
-    }
-
-    fun stopAirMouse() {
-        sensorManager.unregisterListener(gyroListener)
-        airMouseJob?.cancel()
-        _uiState.value = _uiState.value.copy(isAirMouseActive = false)
-    }
-
-    fun recenterAirMouse() {
-        commandSender.sendMove(0.5f, 0.5f)
-    }
-
-    fun setPointerSpeed(v: Float) { _uiState.value = _uiState.value.copy(pointerSpeed = v) }
     fun setScrollSpeed(v: Float)  { _uiState.value = _uiState.value.copy(scrollSpeed = v) }
 
     // --- screenshot ---
@@ -223,8 +180,36 @@ class ControlViewModel @Inject constructor(
             isCapturingScreenshot = true,
             screenshotBitmap = null,
             screenshotError = null,
+            screenshotSource = ScreenshotSource.REMOTE,
         )
         commandSender.requestScreenshot()
+    }
+
+    fun prepareLocalScreenshotCapture() {
+        _uiState.value = _uiState.value.copy(
+            isCapturingScreenshot = true,
+            screenshotBitmap = null,
+            screenshotError = null,
+            screenshotSource = ScreenshotSource.LOCAL_PHONE,
+        )
+    }
+
+    fun onLocalScreenshotCaptured(bitmap: Bitmap) {
+        _uiState.value = _uiState.value.copy(
+            isCapturingScreenshot = false,
+            screenshotBitmap = bitmap,
+            screenshotError = null,
+            screenshotSource = ScreenshotSource.LOCAL_PHONE,
+        )
+    }
+
+    fun onLocalScreenshotFailed(message: String = "Phone screenshot failed") {
+        _uiState.value = _uiState.value.copy(
+            isCapturingScreenshot = false,
+            screenshotBitmap = null,
+            screenshotError = message,
+            screenshotSource = ScreenshotSource.LOCAL_PHONE,
+        )
     }
 
     fun dismissScreenshot() {
@@ -246,20 +231,7 @@ class ControlViewModel @Inject constructor(
         cropB: Float = 1f,
     ): Boolean {
         val orig = _uiState.value.screenshotBitmap ?: return false
-        val bmp = if (cropL == 0f && cropT == 0f && cropR == 1f && cropB == 1f) {
-            orig
-        } else {
-            try {
-                val x = (cropL * orig.width).toInt().coerceIn(0, orig.width - 1)
-                val y = (cropT * orig.height).toInt().coerceIn(0, orig.height - 1)
-                val w = ((cropR - cropL) * orig.width).toInt().coerceIn(1, orig.width - x)
-                val h = ((cropB - cropT) * orig.height).toInt().coerceIn(1, orig.height - y)
-                Bitmap.createBitmap(orig, x, y, w, h)
-            } catch (e: Exception) {
-                Log.e("ControlVM", "Crop failed: ${e.message}")
-                orig
-            }
-        }
+        val bmp = cropBitmap(orig, cropL, cropT, cropR, cropB)
         return try {
             val name = "XRScreenshot_${System.currentTimeMillis()}.jpg"
             val values = ContentValues().apply {
@@ -285,6 +257,72 @@ class ControlViewModel @Inject constructor(
         } catch (e: Exception) {
             Log.e("ControlVM", "Save screenshot failed: ${e.message}")
             false
+        }
+    }
+
+    fun sendScreenshotToDevice(
+        cropL: Float = 0f,
+        cropT: Float = 0f,
+        cropR: Float = 1f,
+        cropB: Float = 1f,
+    ) {
+        val orig = _uiState.value.screenshotBitmap ?: return
+        val bmp = cropBitmap(orig, cropL, cropT, cropR, cropB)
+        viewModelScope.launch {
+            try {
+                val bytes = java.io.ByteArrayOutputStream().use { out ->
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    out.toByteArray()
+                }
+                uploadBytesToDevice(
+                    fileName = "PhoneScreenshot_${System.currentTimeMillis()}.jpg",
+                    bytes = bytes,
+                )
+            } catch (e: Exception) {
+                Log.e("ControlVM", "Send phone screenshot failed: ${e.message}")
+                _uiState.value = _uiState.value.copy(
+                    screenshotError = e.message ?: "Send phone screenshot failed",
+                )
+            }
+        }
+    }
+
+    private fun cropBitmap(
+        orig: Bitmap,
+        cropL: Float,
+        cropT: Float,
+        cropR: Float,
+        cropB: Float,
+    ): Bitmap {
+        if (cropL == 0f && cropT == 0f && cropR == 1f && cropB == 1f) return orig
+        return try {
+            val x = (cropL * orig.width).toInt().coerceIn(0, orig.width - 1)
+            val y = (cropT * orig.height).toInt().coerceIn(0, orig.height - 1)
+            val w = ((cropR - cropL) * orig.width).toInt().coerceIn(1, orig.width - x)
+            val h = ((cropB - cropT) * orig.height).toInt().coerceIn(1, orig.height - y)
+            Bitmap.createBitmap(orig, x, y, w, h)
+        } catch (e: Exception) {
+            Log.e("ControlVM", "Crop failed: ${e.message}")
+            orig
+        }
+    }
+
+    private fun uploadBytesToDevice(fileName: String, bytes: ByteArray) {
+        val chunkSize = 96 * 1024
+        var offset = 0
+        while (offset < bytes.size || (bytes.isEmpty() && offset == 0)) {
+            val end = minOf(bytes.size, offset + chunkSize)
+            val chunk = bytes.copyOfRange(offset, end)
+            val eof = end >= bytes.size
+            val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
+            commandSender.uploadFileChunk(
+                path = fileName,
+                offset = offset.toLong(),
+                base64Data = b64,
+                eof = eof,
+            )
+            if (bytes.isEmpty()) break
+            offset = end
         }
     }
 
@@ -318,7 +356,6 @@ class ControlViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        stopAirMouse()
         voiceManager.cancel()
     }
 }

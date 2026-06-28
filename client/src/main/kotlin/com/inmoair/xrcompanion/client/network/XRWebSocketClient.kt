@@ -53,6 +53,15 @@ class XRWebSocketClient @Inject constructor() {
     private val _screenshots = MutableSharedFlow<ScreenshotResponse>(replay = 1, extraBufferCapacity = 1)
     val screenshots: SharedFlow<ScreenshotResponse> = _screenshots.asSharedFlow()
 
+    private val _fileLists = MutableSharedFlow<FileListResponse>(replay = 1, extraBufferCapacity = 4)
+    val fileLists: SharedFlow<FileListResponse> = _fileLists.asSharedFlow()
+
+    private val _fileChunks = MutableSharedFlow<FileChunkResponse>(extraBufferCapacity = 16)
+    val fileChunks: SharedFlow<FileChunkResponse> = _fileChunks.asSharedFlow()
+
+    private val _fileResults = MutableSharedFlow<FileOperationResponse>(extraBufferCapacity = 16)
+    val fileResults: SharedFlow<FileOperationResponse> = _fileResults.asSharedFlow()
+
     // -----------------------------------------------------------------------
 
     fun connect(device: DiscoveryMessage, token: String = "") {
@@ -143,6 +152,21 @@ class XRWebSocketClient @Inject constructor() {
                 if (raw.contains("\"screenshot_result\"")) {
                     val resp = xrJson.decodeFromString(ScreenshotResponse.serializer(), raw)
                     _screenshots.emit(resp)
+                    return@launch
+                }
+                if (raw.contains("\"file_list\"")) {
+                    val resp = xrJson.decodeFromString(FileListResponse.serializer(), raw)
+                    _fileLists.emit(resp)
+                    return@launch
+                }
+                if (raw.contains("\"file_chunk\"")) {
+                    val resp = xrJson.decodeFromString(FileChunkResponse.serializer(), raw)
+                    _fileChunks.emit(resp)
+                    return@launch
+                }
+                if (raw.contains("\"file_result\"")) {
+                    val resp = xrJson.decodeFromString(FileOperationResponse.serializer(), raw)
+                    _fileResults.emit(resp)
                     return@launch
                 }
                 // Pairing responses

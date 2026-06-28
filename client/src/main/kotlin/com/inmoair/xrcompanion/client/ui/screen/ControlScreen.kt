@@ -1,6 +1,9 @@
 package com.inmoair.xrcompanion.client.ui.screen
 
+import android.app.Activity
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -39,12 +42,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.inmoair.xrcompanion.client.screenshot.LocalScreenshotCapturer
 import com.inmoair.xrcompanion.client.ui.component.HorizontalScrollStrip
 import com.inmoair.xrcompanion.client.ui.component.TouchpadMode
 import com.inmoair.xrcompanion.client.ui.component.TouchpadSurface
@@ -54,6 +59,8 @@ import com.inmoair.xrcompanion.client.data.CustomButton
 import com.inmoair.xrcompanion.client.ui.viewmodel.ControlTab
 import com.inmoair.xrcompanion.client.ui.viewmodel.ControlUiState
 import com.inmoair.xrcompanion.client.ui.viewmodel.ControlViewModel
+import com.inmoair.xrcompanion.client.ui.viewmodel.ScreenshotSource
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,8 +70,27 @@ fun ControlScreen(
     onBack: () -> Unit,
 ) {
     var isKeyboardActive by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester     = remember { FocusRequester() }
+    val localScreenshotLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode != Activity.RESULT_OK || data == null) {
+            viewModel.onLocalScreenshotFailed("Phone screenshot permission was cancelled")
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            try {
+                val bitmap = LocalScreenshotCapturer.capture(context, result.resultCode, data)
+                viewModel.onLocalScreenshotCaptured(bitmap)
+            } catch (e: Exception) {
+                viewModel.onLocalScreenshotFailed(e.message ?: "Phone screenshot failed")
+            }
+        }
+    }
 
     // Sentinel: we always keep this string in the hidden field with the cursor at the end.
     // Because the field is never empty, backspace ALWAYS shortens it — even if the glasses
@@ -119,7 +145,17 @@ fun ControlScreen(
                         }
                     } else {
                         IconButton(onClick = { viewModel.requestScreenshot() }) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Screenshot", tint = AccentBlue)
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Glasses screenshot", tint = AccentBlue)
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.prepareLocalScreenshotCapture()
+                                localScreenshotLauncher.launch(
+                                    LocalScreenshotCapturer.createCaptureIntent(context),
+                                )
+                            },
+                        ) {
+                            Icon(Icons.Default.PhoneAndroid, contentDescription = "Phone screenshot", tint = AccentBlue)
                         }
                     }
                     IconButton(onClick = { viewModel.pressSleep() }) {
@@ -182,7 +218,6 @@ fun ControlScreen(
                     viewModel        = viewModel,
                     onToggleKeyboard = { isKeyboardActive = !isKeyboardActive },
                 )
-                ControlTab.AIR_MOUSE -> AirMouseTab(uiState, viewModel)
                 ControlTab.REMOTE    -> RemoteTab(
                     viewModel        = viewModel,
                     onToggleKeyboard = { isKeyboardActive = !isKeyboardActive },
@@ -290,10 +325,14 @@ fun ControlScreen(
 
     // ── Screenshot viewer ─────────────────────────────────────────────────────
     uiState.screenshotBitmap?.let { bmp ->
+        val isLocalPhone = uiState.screenshotSource == ScreenshotSource.LOCAL_PHONE
         ScreenshotDialog(
             bitmap    = bmp,
+            title     = if (isLocalPhone) "Crop phone screenshot" else "Crop glasses screenshot",
+            saveLabel = if (isLocalPhone) "Crop & Send" else "Crop & Save",
             onSave    = { l, t, r, b ->
-                viewModel.saveScreenshotToGallery(l, t, r, b)
+                if (isLocalPhone) viewModel.sendScreenshotToDevice(l, t, r, b)
+                else viewModel.saveScreenshotToGallery(l, t, r, b)
                 viewModel.dismissScreenshot()
             },
             onDiscard = { viewModel.dismissScreenshot() },
@@ -316,6 +355,8 @@ private enum class CropHandle { NONE, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_R
 @Composable
 private fun ScreenshotDialog(
     bitmap: Bitmap,
+    title: String,
+    saveLabel: String,
     onSave: (l: Float, t: Float, r: Float, b: Float) -> Unit,
     onDiscard: () -> Unit,
 ) {
@@ -338,7 +379,7 @@ private fun ScreenshotDialog(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Drag corners to crop", style = MaterialTheme.typography.titleMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium)
 
             // Crop area — image + interactive overlay
             Box(
@@ -476,7 +517,7 @@ private fun ScreenshotDialog(
                 ) {
                     Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Crop & Save")
+                    Text(saveLabel)
                 }
             }
         }
@@ -563,61 +604,6 @@ private fun ColumnScope.TouchpadTab(
         CtrlButton(Icons.Default.BackHand, "Click") {
             if (uiState.cursorMode) viewModel.cursorTap() else viewModel.onTap(0.5f, 0.5f)
         }
-    }
-}
-
-@Composable
-private fun ColumnScope.AirMouseTab(uiState: ControlUiState, viewModel: ControlViewModel) {
-    Column(
-        Modifier.weight(1f).fillMaxWidth(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.Default.Explore,
-            contentDescription = null,
-            tint = if (uiState.isAirMouseActive) AccentBlue else TextSecondary,
-            modifier = Modifier.size(80.dp),
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            if (uiState.isAirMouseActive) "Air Mouse Active\nTilt your phone to move the cursor"
-            else "Tap Start to activate Air Mouse",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = {
-                if (uiState.isAirMouseActive) viewModel.stopAirMouse()
-                else viewModel.startAirMouse()
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (uiState.isAirMouseActive) StatusRed else AccentBlue
-            ),
-            modifier = Modifier.fillMaxWidth(0.6f),
-            shape = RoundedCornerShape(10.dp),
-        ) { Text(if (uiState.isAirMouseActive) "Stop" else "Start Air Mouse") }
-
-        if (uiState.isAirMouseActive) {
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { viewModel.recenterAirMouse() },
-                modifier = Modifier.fillMaxWidth(0.6f),
-            ) { Text("Recenter") }
-        }
-    }
-
-    // Click buttons at bottom
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-        CtrlButton(Icons.Default.ArrowBack, "Back")   { viewModel.pressBack() }
-        Button(
-            onClick = { viewModel.onTap(0.5f, 0.5f) },
-            modifier = Modifier.fillMaxWidth(0.5f).height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-            shape = RoundedCornerShape(10.dp),
-        ) { Text("Click") }
-        CtrlButton(Icons.Default.Home, "Home")        { viewModel.pressHome() }
     }
 }
 

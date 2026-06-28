@@ -33,8 +33,6 @@ class DeviceRepository @Inject constructor(
         private val KEY_SESSION_TOKEN = stringPreferencesKey("session_token")
         private val KEY_TOUCH_SENSITIVITY = floatPreferencesKey("touch_sensitivity")
         private val KEY_SCROLL_SPEED = floatPreferencesKey("scroll_speed")
-        private val KEY_AIRMOUSE_SPEED = floatPreferencesKey("airmouse_speed")
-        private val KEY_POINTER_SPEED = floatPreferencesKey("pointer_speed")
         private val KEY_CUSTOM_BUTTONS = stringPreferencesKey("custom_buttons")
     }
 
@@ -48,8 +46,6 @@ class DeviceRepository @Inject constructor(
 
     val touchSensitivity: Flow<Float> = store.data.map { it[KEY_TOUCH_SENSITIVITY] ?: 1.0f }
     val scrollSpeed: Flow<Float>      = store.data.map { it[KEY_SCROLL_SPEED]      ?: 1.0f }
-    val airMouseSpeed: Flow<Float>    = store.data.map { it[KEY_AIRMOUSE_SPEED]    ?: 1.0f }
-    val pointerSpeed: Flow<Float>     = store.data.map { it[KEY_POINTER_SPEED]     ?: 1.0f }
 
     suspend fun saveLastDevice(device: DiscoveryMessage) {
         store.edit { it[KEY_LAST_DEVICE] = json.encodeToString(device) }
@@ -61,8 +57,6 @@ class DeviceRepository @Inject constructor(
 
     suspend fun setTouchSensitivity(v: Float) { store.edit { it[KEY_TOUCH_SENSITIVITY] = v } }
     suspend fun setScrollSpeed(v: Float)      { store.edit { it[KEY_SCROLL_SPEED] = v } }
-    suspend fun setAirMouseSpeed(v: Float)    { store.edit { it[KEY_AIRMOUSE_SPEED] = v } }
-    suspend fun setPointerSpeed(v: Float)     { store.edit { it[KEY_POINTER_SPEED] = v } }
 
     // ── Custom buttons ────────────────────────────────────────────────────────
 
