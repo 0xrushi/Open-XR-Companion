@@ -84,6 +84,8 @@ fun TouchpadSurface(
                     var isDrag    = false
                     var longFired = false
                     var twoFingerScroll = false
+                    var scrollAccumX = 0f
+                    var scrollAccumY = 0f
 
                     // Long-press fires if finger sits still long enough
                     var lpJob: Job? = scope.launch {
@@ -127,9 +129,15 @@ fun TouchpadSurface(
                                     (pair[0].previousPosition.x + pair[1].previousPosition.x) / 2f,
                                     (pair[0].previousPosition.y + pair[1].previousPosition.y) / 2f,
                                 )
-                                val dx = ((curCentroid.x - prevCentroid.x) * 2f).toInt()
-                                val dy = (-(curCentroid.y - prevCentroid.y) * 2f).toInt()
-                                if (dx != 0 || dy != 0) onCursorScroll(dx, dy)
+                                scrollAccumX += (curCentroid.x - prevCentroid.x) * 6f
+                                scrollAccumY += -(curCentroid.y - prevCentroid.y) * 6f
+                                val dx = scrollAccumX.toInt()
+                                val dy = scrollAccumY.toInt()
+                                if (dx != 0 || dy != 0) {
+                                    onCursorScroll(dx, dy)
+                                    scrollAccumX -= dx
+                                    scrollAccumY -= dy
+                                }
                                 event.changes.forEach { it.consume() }
                                 continue
                             }
@@ -221,6 +229,7 @@ fun VerticalScrollStrip(
     onScroll: (delta: Int) -> Unit,
 ) {
     var lastY by remember { mutableFloatStateOf(0f) }
+    var scrollAccumY by remember { mutableFloatStateOf(0f) }
     Box(
         modifier = modifier
             .width(28.dp)
@@ -231,13 +240,19 @@ fun VerticalScrollStrip(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     lastY = down.position.y
+                    scrollAccumY = 0f
                     while (true) {
                         val event  = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (change.pressed) {
                             val dy = change.position.y - lastY
                             lastY  = change.position.y
-                            if (dy != 0f) onScroll(-(dy * 2).toInt())
+                            scrollAccumY += -(dy * 2.5f)
+                            val delta = scrollAccumY.toInt()
+                            if (delta != 0) {
+                                onScroll(delta)
+                                scrollAccumY -= delta
+                            }
                             change.consume()
                         } else {
                             change.consume(); break
@@ -254,6 +269,7 @@ fun HorizontalScrollStrip(
     onScroll: (delta: Int) -> Unit,
 ) {
     var lastX by remember { mutableFloatStateOf(0f) }
+    var scrollAccumX by remember { mutableFloatStateOf(0f) }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -264,13 +280,19 @@ fun HorizontalScrollStrip(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     lastX = down.position.x
+                    scrollAccumX = 0f
                     while (true) {
                         val event  = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (change.pressed) {
                             val dx = change.position.x - lastX
                             lastX  = change.position.x
-                            if (dx != 0f) onScroll((dx * 2).toInt())
+                            scrollAccumX += dx * 2.5f
+                            val delta = scrollAccumX.toInt()
+                            if (delta != 0) {
+                                onScroll(delta)
+                                scrollAccumX -= delta
+                            }
                             change.consume()
                         } else {
                             change.consume(); break

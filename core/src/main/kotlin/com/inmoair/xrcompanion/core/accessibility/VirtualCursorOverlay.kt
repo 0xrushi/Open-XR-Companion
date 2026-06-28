@@ -14,6 +14,7 @@ import android.view.View
 import android.view.WindowManager
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 
 /**
  * App-owned cursor shown above other windows by the accessibility service.
@@ -25,7 +26,11 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class VirtualCursorOverlay(context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val windowManager = context.getSystemService(WindowManager::class.java)
-    private val cursorView = CursorView(context)
+    private val density = context.resources.displayMetrics.density
+    private val cursorTipInsetPx = (4f * density).roundToInt()
+    private val cursorWidthPx = (64f * density).roundToInt()
+    private val cursorHeightPx = (72f * density).roundToInt()
+    private val cursorView = CursorView(context, cursorTipInsetPx.toFloat())
     private val updatePosted = AtomicBoolean(false)
     private val pendingVersion = AtomicInteger(0)
 
@@ -35,6 +40,7 @@ internal class VirtualCursorOverlay(context: Context) {
 
     private var attached = false
     private var appliedVersion = 0
+    private var layoutParams: WindowManager.LayoutParams? = null
 
     fun showAt(x: Float, y: Float) {
         visibleRequested = true
@@ -75,8 +81,19 @@ internal class VirtualCursorOverlay(context: Context) {
             }
 
             val version = pendingVersion.get()
-            cursorView.setCursorPosition(pendingX, pendingY)
             ensureAttached()
+            val params = layoutParams
+            if (params != null) {
+                params.x = (pendingX - cursorTipInsetPx).roundToInt()
+                params.y = (pendingY - cursorTipInsetPx).roundToInt()
+                if (attached) {
+                    runCatching {
+                        windowManager.updateViewLayout(cursorView, params)
+                    }.onFailure {
+                        Log.w(TAG, "Failed to move cursor overlay: ${it.message}")
+                    }
+                }
+            }
             cursorView.invalidate()
             appliedVersion = version
         } finally {
@@ -96,14 +113,15 @@ internal class VirtualCursorOverlay(context: Context) {
             Log.w(TAG, "Failed to remove cursor overlay: ${it.message}")
         }
         attached = false
+        layoutParams = null
     }
 
     private fun ensureAttached() {
         if (attached) return
 
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            cursorWidthPx,
+            cursorHeightPx,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -112,6 +130,8 @@ internal class VirtualCursorOverlay(context: Context) {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+            x = (pendingX - cursorTipInsetPx).roundToInt()
+            y = (pendingY - cursorTipInsetPx).roundToInt()
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             setTitle("XR Virtual Cursor")
@@ -119,18 +139,19 @@ internal class VirtualCursorOverlay(context: Context) {
 
         runCatching {
             windowManager.addView(cursorView, params)
+            layoutParams = params
             attached = true
         }.onFailure {
             Log.w(TAG, "Failed to add cursor overlay: ${it.message}")
         }
     }
 
-    private class CursorView(context: Context) : View(context) {
+    private class CursorView(
+        context: Context,
+        private val tipInset: Float,
+    ) : View(context) {
         private val density = resources.displayMetrics.density
         private val cursorPath = Path()
-
-        private var cursorX = 0f
-        private var cursorY = 0f
 
         private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
@@ -152,17 +173,10 @@ internal class VirtualCursorOverlay(context: Context) {
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }
 
-        fun setCursorPosition(x: Float, y: Float) {
-            cursorX = x
-            cursorY = y
-        }
-
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
 
-            val x = cursorX.coerceIn(0f, width.toFloat())
-            val y = cursorY.coerceIn(0f, height.toFloat())
-            buildCursorPath(x, y)
+            buildCursorPath(tipInset, tipInset)
 
             canvas.save()
             canvas.translate(2.5f * density, 2.5f * density)

@@ -11,9 +11,11 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class XRAccessibilityService : AccessibilityService() {
 
@@ -27,6 +29,10 @@ class XRAccessibilityService : AccessibilityService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var cursorOverlay: VirtualCursorOverlay? = null
+    private var pendingVerticalScrollDelta = 0
+    private var pendingHorizontalScrollDelta = 0
+    private var scrollDispatching = false
+    private var scrollFlushJob: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -37,6 +43,8 @@ class XRAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        scrollFlushJob?.cancel()
+        scrollFlushJob = null
         cursorOverlay?.destroy()
         cursorOverlay = null
         instance = null
@@ -121,16 +129,94 @@ class XRAccessibilityService : AccessibilityService() {
 
     /** Scroll by injecting a swipe in the opposite direction */
     fun injectScroll(axis: String, delta: Int) {
+        if (delta == 0) return
+        scope.launch {
+            if (axis == "horizontal") {
+                pendingHorizontalScrollDelta =
+                    (pendingHorizontalScrollDelta + delta).coerceIn(-1200, 1200)
+            } else {
+                pendingVerticalScrollDelta =
+                    (pendingVerticalScrollDelta + delta).coerceIn(-1200, 1200)
+            }
+            scheduleScrollFlush()
+        }
+    }
+
+    private fun scheduleScrollFlush(delayMs: Long = 35L) {
+        if (scrollDispatching || scrollFlushJob != null) return
+        scrollFlushJob = scope.launch {
+            delay(delayMs)
+            scrollFlushJob = null
+            flushPendingScroll()
+        }
+    }
+
+    private fun flushPendingScroll() {
+        if (scrollDispatching) return
+
+        val axis: String
+        val delta: Int
+        if (pendingVerticalScrollDelta != 0) {
+            axis = "vertical"
+            delta = pendingVerticalScrollDelta
+            pendingVerticalScrollDelta = 0
+        } else if (pendingHorizontalScrollDelta != 0) {
+            axis = "horizontal"
+            delta = pendingHorizontalScrollDelta
+            pendingHorizontalScrollDelta = 0
+        } else {
+            return
+        }
+
+        scrollDispatching = true
+        val accepted = dispatchScrollGesture(axis, delta)
+        if (!accepted) {
+            scrollDispatching = false
+            scheduleScrollFlush(50L)
+        }
+    }
+
+    private fun dispatchScrollGesture(axis: String, delta: Int): Boolean {
         val metrics = resources.displayMetrics
         val w = metrics.widthPixels.toFloat()
         val h = metrics.heightPixels.toFloat()
         val cx = w / 2f
         val cy = h / 2f
-        val dist = delta.coerceIn(-600, 600).toFloat()
-        if (axis == "vertical") {
-            injectSwipe(cx, cy, cx, cy - dist, 150L)
+        val rawDist = (delta * 4f).coerceIn(-900f, 900f)
+        if (abs(rawDist) < 1f) return false
+        val dist = if (abs(rawDist) < 80f) {
+            if (rawDist > 0f) 80f else -80f
         } else {
-            injectSwipe(cx, cy, cx - dist, cy, 150L)
+            rawDist
+        }
+        val path = Path().apply {
+            if (axis == "vertical") {
+                moveTo(cx, cy)
+                lineTo(cx, cy - dist)
+            } else {
+                moveTo(cx, cy)
+                lineTo(cx - dist, cy)
+            }
+        }
+        return dispatchGesture(
+            buildGesture(path, 90L, 0L),
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    scope.launch { finishScrollGesture() }
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    scope.launch { finishScrollGesture() }
+                }
+            },
+            null,
+        )
+    }
+
+    private fun finishScrollGesture() {
+        scrollDispatching = false
+        if (pendingVerticalScrollDelta != 0 || pendingHorizontalScrollDelta != 0) {
+            scheduleScrollFlush(16L)
         }
     }
 
