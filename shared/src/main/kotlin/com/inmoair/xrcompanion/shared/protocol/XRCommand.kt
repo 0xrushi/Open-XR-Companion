@@ -24,7 +24,7 @@ data class XRCommand(
     val type: String,
 
     // --- touch / gesture ---
-    /** down | move | up | tap | double_tap | long_press | swipe */
+    /** down | move | up | tap | double_tap | long_press | swipe | cursor_show | cursor_hide */
     val action: String = "",
     val x: Float = 0f,
     val y: Float = 0f,

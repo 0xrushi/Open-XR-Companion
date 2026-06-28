@@ -19,31 +19,43 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+enum class TouchpadMode { CURSOR, DIRECT }
+
 /**
- * Touchpad surface — single unified gesture handler.
+ * Touchpad surface — supports two modes:
  *
- * WHY: Two competing pointerInput blocks (detectDragGestures + detectTapGestures) both
- * fire on every touch. The drag block was calling onMove on every pixel, which dispatched
- * 1ms AccessibilityGestures on the Core — Android interprets those as taps, causing
- * "random clicks all over the screen". This rewrite uses ONE awaitEachGesture block that
- * decides tap vs swipe vs long-press based on movement distance, with no continuous
- * move events emitted.
+ * DIRECT (absolute, "mobile mirror"):
+ *   Finger position maps directly to the same normalised position on the glasses screen.
+ *   Useful when mirroring a phone screen 1:1.
+ *    - Finger down + up, no movement      → onTap(nx, ny)
+ *    - Two quick taps                      → onDoubleTap(nx, ny)
+ *    - Finger held still                   → onLongPress(nx, ny)
+ *    - Finger moves then lifts             → onSwipe(start → end)
  *
- * Gesture rules:
- *  - Finger down + up, no movement          → onTap
- *  - Two quick taps close together           → onDoubleTap
- *  - Finger held without movement            → onLongPress
- *  - Finger moves > touchSlop then lifts     → onSwipe(startNorm → endNorm)
+ * CURSOR (relative, laptop-trackpad):
+ *   Finger movement nudges a virtual cursor by a *delta*; the glasses show the cursor
+ *   moving. Taps act on wherever the cursor currently sits, not where you touched.
+ *    - Finger drag                         → onCursorMove(dxNorm, dyNorm) continuously
+ *    - Finger down + up, no movement       → onCursorTap()
+ *    - Two quick taps                      → onCursorDoubleTap()
+ *    - Finger held still                   → onCursorLongPress()
  *
- * Coordinates are normalised [0..1] relative to the touchpad dimensions.
+ * Coordinates / deltas are normalised [0..1] relative to the touchpad dimensions.
  */
 @Composable
 fun TouchpadSurface(
     modifier: Modifier = Modifier,
+    mode: TouchpadMode = TouchpadMode.CURSOR,
+    // Direct-mode callbacks
     onTap: (nx: Float, ny: Float) -> Unit,
     onDoubleTap: (nx: Float, ny: Float) -> Unit,
     onLongPress: (nx: Float, ny: Float) -> Unit,
     onSwipe: (x1: Float, y1: Float, x2: Float, y2: Float) -> Unit,
+    // Cursor-mode callbacks
+    onCursorMove: (dxNorm: Float, dyNorm: Float) -> Unit = { _, _ -> },
+    onCursorTap: () -> Unit = {},
+    onCursorDoubleTap: () -> Unit = {},
+    onCursorLongPress: () -> Unit = {},
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
@@ -57,7 +69,7 @@ fun TouchpadSurface(
             .onSizeChanged { size = it }
             .background(TouchpadSurface, RoundedCornerShape(16.dp))
             .border(1.dp, TouchpadBorder, RoundedCornerShape(16.dp))
-            .pointerInput(Unit) {
+            .pointerInput(mode) {
                 val dragSlop    = viewConfiguration.touchSlop
                 val longPressMs = viewConfiguration.longPressTimeoutMillis
                 val doubleTapMs = viewConfiguration.doubleTapTimeoutMillis
@@ -66,6 +78,7 @@ fun TouchpadSurface(
                     val down      = awaitFirstDown(requireUnconsumed = false)
                     val startPos  = down.position
                     var curPos    = startPos
+                    var prevPos   = startPos          // for incremental cursor deltas
                     var isDrag    = false
                     var longFired = false
 
@@ -74,12 +87,16 @@ fun TouchpadSurface(
                         delay(longPressMs)
                         if (!isDrag) {
                             longFired = true
-                            val w = size.width.coerceAtLeast(1).toFloat()
-                            val h = size.height.coerceAtLeast(1).toFloat()
-                            onLongPress(
-                                (startPos.x / w).coerceIn(0f, 1f),
-                                (startPos.y / h).coerceIn(0f, 1f),
-                            )
+                            if (mode == TouchpadMode.CURSOR) {
+                                onCursorLongPress()
+                            } else {
+                                val w = size.width.coerceAtLeast(1).toFloat()
+                                val h = size.height.coerceAtLeast(1).toFloat()
+                                onLongPress(
+                                    (startPos.x / w).coerceIn(0f, 1f),
+                                    (startPos.y / h).coerceIn(0f, 1f),
+                                )
+                            }
                         }
                     }
 
@@ -96,6 +113,16 @@ fun TouchpadSurface(
                                     lpJob?.cancel()   // started moving → not a long press
                                     lpJob = null
                                 }
+                                // In cursor mode emit incremental deltas while dragging.
+                                if (mode == TouchpadMode.CURSOR && isDrag) {
+                                    val w  = size.width.coerceAtLeast(1).toFloat()
+                                    val h  = size.height.coerceAtLeast(1).toFloat()
+                                    val dx = (curPos.x - prevPos.x) / w
+                                    val dy = (curPos.y - prevPos.y) / h
+                                    if (dx != 0f || dy != 0f) onCursorMove(dx, dy)
+                                    change.consume()
+                                }
+                                prevPos = curPos
                             } else {
                                 change.consume()
                                 break
@@ -110,7 +137,20 @@ fun TouchpadSurface(
                     val w  = size.width.coerceAtLeast(1).toFloat()
                     val h  = size.height.coerceAtLeast(1).toFloat()
 
-                    if (isDrag) {
+                    if (mode == TouchpadMode.CURSOR) {
+                        // Drag already moved the cursor; only a stationary touch is a click.
+                        if (!isDrag) {
+                            val now     = System.currentTimeMillis()
+                            val prevAge = now - lastTapTime
+                            if (prevAge < doubleTapMs) {
+                                lastTapTime = 0L
+                                onCursorDoubleTap()
+                            } else {
+                                lastTapTime = now
+                                onCursorTap()
+                            }
+                        }
+                    } else if (isDrag) {
                         // ── Swipe: send start → end, let Core inject the gesture ──
                         onSwipe(
                             (startPos.x / w).coerceIn(0f, 1f),

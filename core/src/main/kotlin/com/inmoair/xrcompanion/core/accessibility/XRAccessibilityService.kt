@@ -26,15 +26,19 @@ class XRAccessibilityService : AccessibilityService() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var cursorOverlay: VirtualCursorOverlay? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        cursorOverlay = VirtualCursorOverlay(this)
         Log.i(TAG, "Accessibility service connected")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        cursorOverlay?.destroy()
+        cursorOverlay = null
         instance = null
         Log.i(TAG, "Accessibility service destroyed")
     }
@@ -76,10 +80,16 @@ class XRAccessibilityService : AccessibilityService() {
     // Touch / gesture injection
     // -----------------------------------------------------------------------
 
-    /** Move pointer to (x, y) — uses a very short swipe to simulate hover/move */
     fun injectMove(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y); lineTo(x, y) }
-        dispatchGesture(buildGesture(path, 1L, 0L), null, null)
+        showCursor(x, y)
+    }
+
+    fun showCursor(x: Float, y: Float) {
+        cursorOverlay?.showAt(x, y)
+    }
+
+    fun hideCursor() {
+        cursorOverlay?.hide()
     }
 
     /** Single tap */

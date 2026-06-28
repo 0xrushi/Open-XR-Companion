@@ -43,6 +43,10 @@ data class ControlUiState(
     val isAirMouseActive: Boolean = false,
     val pointerSpeed: Float = 1f,
     val scrollSpeed: Float = 1f,
+    // Touchpad mode: true = relative cursor/trackpad (glasses cursor moves);
+    // false = direct absolute touch (mobile mirror).
+    val cursorMode: Boolean = false,
+    val cursorSpeed: Float = 1.6f,
     // Screenshot
     val isCapturingScreenshot: Boolean = false,
     val screenshotBitmap: Bitmap? = null,
@@ -116,7 +120,7 @@ class ControlViewModel @Inject constructor(
 
     fun setTab(tab: ControlTab) { _uiState.value = _uiState.value.copy(activeTab = tab) }
 
-    // --- touchpad ---
+    // --- touchpad (direct/absolute mode) ---
     fun onTap(nx: Float, ny: Float)               = commandSender.sendTap(nx, ny)
     fun onDoubleTap(nx: Float, ny: Float)         = commandSender.sendDoubleTap(nx, ny)
     fun onLongPress(nx: Float, ny: Float)         = commandSender.sendLongPress(nx, ny)
@@ -124,6 +128,37 @@ class ControlViewModel @Inject constructor(
     fun onSwipe(x1: Float, y1: Float, x2: Float, y2: Float) = commandSender.sendSwipe(x1, y1, x2, y2)
     fun onScrollV(delta: Int)                     = commandSender.sendScrollVertical(delta)
     fun onScrollH(delta: Int)                     = commandSender.sendScrollHorizontal(delta)
+
+    // --- touchpad (cursor/relative mode) ---
+    // A virtual cursor position is tracked on the client and pushed to the glasses
+    // via sendMove. Taps act on the cursor's current location.
+    private var cursorX = 0.5f
+    private var cursorY = 0.5f
+
+    fun toggleCursorMode() {
+        val now = !_uiState.value.cursorMode
+        _uiState.value = _uiState.value.copy(cursorMode = now)
+        if (now) {
+            // Re-centre and show the cursor when entering cursor mode.
+            cursorX = 0.5f; cursorY = 0.5f
+            commandSender.setCursorVisible(true, cursorX, cursorY)
+        } else {
+            commandSender.setCursorVisible(false)
+        }
+    }
+
+    fun moveCursorBy(dxNorm: Float, dyNorm: Float) {
+        if (!_uiState.value.cursorMode) return
+        val speed = _uiState.value.cursorSpeed
+        cursorX = (cursorX + dxNorm * speed).coerceIn(0f, 1f)
+        cursorY = (cursorY + dyNorm * speed).coerceIn(0f, 1f)
+        commandSender.sendMove(cursorX, cursorY)
+    }
+
+    fun cursorTap()        = commandSender.sendTap(cursorX, cursorY)
+    fun cursorDoubleTap()  = commandSender.sendDoubleTap(cursorX, cursorY)
+    fun cursorLongPress()  = commandSender.sendLongPress(cursorX, cursorY)
+    fun setCursorSpeed(v: Float) { _uiState.value = _uiState.value.copy(cursorSpeed = v) }
 
     // --- remote buttons ---
     fun pressBack()    = commandSender.sendBack()

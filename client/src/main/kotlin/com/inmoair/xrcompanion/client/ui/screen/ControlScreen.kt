@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inmoair.xrcompanion.client.ui.component.HorizontalScrollStrip
+import com.inmoair.xrcompanion.client.ui.component.TouchpadMode
 import com.inmoair.xrcompanion.client.ui.component.TouchpadSurface
 import com.inmoair.xrcompanion.client.ui.component.VerticalScrollStrip
 import com.inmoair.xrcompanion.client.ui.theme.*
@@ -177,6 +178,7 @@ fun ControlScreen(
             // Main content
             when (uiState.activeTab) {
                 ControlTab.TOUCHPAD  -> TouchpadTab(
+                    uiState          = uiState,
                     viewModel        = viewModel,
                     onToggleKeyboard = { isKeyboardActive = !isKeyboardActive },
                 )
@@ -483,21 +485,62 @@ private fun ScreenshotDialog(
 
 @Composable
 private fun ColumnScope.TouchpadTab(
+    uiState: ControlUiState,
     viewModel: ControlViewModel,
     onToggleKeyboard: () -> Unit,
 ) {
+    // Mode toggle row: Cursor (relative trackpad) vs Direct (absolute mobile touch)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(CardDark, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (uiState.cursorMode) Icons.Default.Mouse else Icons.Default.TouchApp,
+            contentDescription = null,
+            tint = AccentBlue,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (uiState.cursorMode) "Cursor mode" else "Direct touch",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                if (uiState.cursorMode) "Trackpad — moves the glasses cursor"
+                else "Absolute — mirrors a phone screen 1:1",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+            )
+        }
+        Switch(
+            checked = uiState.cursorMode,
+            onCheckedChange = { viewModel.toggleCursorMode() },
+        )
+    }
+
+    val mode = if (uiState.cursorMode) TouchpadMode.CURSOR else TouchpadMode.DIRECT
+
     // Central area: scroll strips + touchpad
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         // Left scroll strip
         VerticalScrollStrip(onScroll = { viewModel.onScrollV(it) })
 
-        // Touchpad — onSwipe replaces onMove; no continuous move events
+        // Touchpad — behaviour depends on mode
         TouchpadSurface(
-            modifier    = Modifier.weight(1f),
-            onTap       = { nx, ny -> viewModel.onTap(nx, ny) },
-            onDoubleTap = { nx, ny -> viewModel.onDoubleTap(nx, ny) },
-            onLongPress = { nx, ny -> viewModel.onLongPress(nx, ny) },
-            onSwipe     = { x1, y1, x2, y2 -> viewModel.onSwipe(x1, y1, x2, y2) },
+            modifier          = Modifier.weight(1f),
+            mode              = mode,
+            onTap             = { nx, ny -> viewModel.onTap(nx, ny) },
+            onDoubleTap       = { nx, ny -> viewModel.onDoubleTap(nx, ny) },
+            onLongPress       = { nx, ny -> viewModel.onLongPress(nx, ny) },
+            onSwipe           = { x1, y1, x2, y2 -> viewModel.onSwipe(x1, y1, x2, y2) },
+            onCursorMove      = { dx, dy -> viewModel.moveCursorBy(dx, dy) },
+            onCursorTap       = { viewModel.cursorTap() },
+            onCursorDoubleTap = { viewModel.cursorDoubleTap() },
+            onCursorLongPress = { viewModel.cursorLongPress() },
         )
 
         // Right scroll strip
@@ -517,7 +560,9 @@ private fun ColumnScope.TouchpadTab(
         CtrlButton(Icons.Default.Home, "Home")         { viewModel.pressHome() }
         CtrlButton(Icons.Default.GridView, "Recents")  { viewModel.pressRecents() }
         CtrlButton(Icons.Default.Keyboard, "Keyboard") { onToggleKeyboard() }
-        CtrlButton(Icons.Default.BackHand, "Click") { viewModel.onTap(0.5f, 0.5f) }
+        CtrlButton(Icons.Default.BackHand, "Click") {
+            if (uiState.cursorMode) viewModel.cursorTap() else viewModel.onTap(0.5f, 0.5f)
+        }
     }
 }
 

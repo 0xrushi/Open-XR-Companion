@@ -25,6 +25,17 @@ class CommandSender @Inject constructor(
     fun sendMove(nx: Float, ny: Float) =
         send(XRCommand(type = "touch", action = "move", x = nx, y = ny, timestamp = now()))
 
+    fun setCursorVisible(visible: Boolean, nx: Float = 0.5f, ny: Float = 0.5f) =
+        send(
+            XRCommand(
+                type = "touch",
+                action = if (visible) "cursor_show" else "cursor_hide",
+                x = nx,
+                y = ny,
+                timestamp = now(),
+            )
+        )
+
     fun sendSwipe(x1: Float, y1: Float, x2: Float, y2: Float) =
         send(XRCommand(type = "touch", action = "swipe", x = x1, y = y1, x2 = x2, y2 = y2, timestamp = now()))
 
