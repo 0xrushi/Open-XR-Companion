@@ -2,6 +2,7 @@ package com.inmoair.xrcompanion.client.ui.screen
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -19,12 +20,19 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as GeomSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -46,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -107,6 +116,33 @@ fun ControlScreen(
     var bufferedMode by remember { mutableStateOf(false) }
     var bufferedText by remember { mutableStateOf("") }
     val bufferedFocusRequester = remember { FocusRequester() }
+
+    fun keepKeyboardOpen() {
+        keyboardController?.show()
+    }
+
+    fun sendBufferedText() {
+        if (bufferedText.isNotEmpty()) {
+            viewModel.sendText(bufferedText)
+            bufferedText = ""
+        }
+    }
+
+    fun sendEnterFromKeyboard() {
+        Log.i("ControlKeyboard", "Phone keyboard IME action -> XR enter")
+        if (bufferedMode) sendBufferedText()
+        keyboardText = sentinelValue()
+        viewModel.sendEnter()
+        keepKeyboardOpen()
+    }
+
+    val enterKeyboardActions = KeyboardActions(
+        onDone = { sendEnterFromKeyboard() },
+        onGo = { sendEnterFromKeyboard() },
+        onSearch = { sendEnterFromKeyboard() },
+        onSend = { sendEnterFromKeyboard() },
+        onNext = { sendEnterFromKeyboard() },
+    )
 
     // Show/hide the system keyboard and focus the right field whenever either flag changes.
     LaunchedEffect(isKeyboardActive, bufferedMode) {
@@ -252,23 +288,37 @@ fun ControlScreen(
                         // Visible accumulation field
                         OutlinedTextField(
                             value = bufferedText,
-                            onValueChange = { bufferedText = it },
+                            onValueChange = { value ->
+                                if ('\n' in value) {
+                                    bufferedText = value.replace("\n", "")
+                                    sendEnterFromKeyboard()
+                                } else {
+                                    bufferedText = value
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
-                                .focusRequester(bufferedFocusRequester),
+                                .focusRequester(bufferedFocusRequester)
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
+                                        sendEnterFromKeyboard()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
                             placeholder = {
                                 Text("Type here…", style = MaterialTheme.typography.bodySmall)
                             },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyMedium,
+                            keyboardOptions = KeyboardOptions.Default.copy(
+                                imeAction = ImeAction.Done,
+                            ),
+                            keyboardActions = enterKeyboardActions,
                         )
                         Button(
-                            onClick = {
-                                if (bufferedText.isNotEmpty()) {
-                                    viewModel.sendText(bufferedText)
-                                    bufferedText = ""
-                                }
-                            },
+                            onClick = { sendBufferedText() },
                             enabled = bufferedText.isNotEmpty(),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                         ) {
@@ -306,7 +356,14 @@ fun ControlScreen(
                                 // The cursor is always at the end (sentinel + new chars), so
                                 // new chars = everything after the sentinel length.
                                 val added = new.text.drop(sentinel.length)
-                                if (added.isNotEmpty()) viewModel.sendText(added)
+                                if (added.isNotEmpty()) {
+                                    val text = added.replace("\n", "")
+                                    if (text.isNotEmpty()) viewModel.sendText(text)
+                                    if ('\n' in added) {
+                                        viewModel.sendEnter()
+                                        keepKeyboardOpen()
+                                    }
+                                }
                             }
                         }
                         // Always reset to sentinel with cursor at end so the buffer
@@ -316,8 +373,20 @@ fun ControlScreen(
                     modifier = Modifier
                         .size(1.dp)
                         .alpha(0f)
-                        .focusRequester(focusRequester),
+                        .focusRequester(focusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
+                                sendEnterFromKeyboard()
+                                true
+                            } else {
+                                false
+                            }
+                        },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions.Default.copy(
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = enterKeyboardActions,
                 )
             }
         }

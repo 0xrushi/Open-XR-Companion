@@ -335,7 +335,20 @@ class XRAccessibilityService : AccessibilityService() {
         focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 
-    fun injectEnter() = injectKeyEvent(android.view.KeyEvent.KEYCODE_ENTER)
+    fun injectEnter() {
+        val inputFocus = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val imeEnterAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+        if (inputFocus?.performAction(imeEnterAction) == true) {
+            return
+        }
+
+        if (findFocusedEditableNode() != null) {
+            injectText("\n")
+            return
+        }
+
+        Log.w(TAG, "No focused editable node for enter")
+    }
 
     // -----------------------------------------------------------------------
     // Screenshot capture (API 30+, minSdk 31 on Core so always available)
