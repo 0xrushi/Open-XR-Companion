@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Path
-import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
@@ -169,10 +168,83 @@ class XRAccessibilityService : AccessibilityService() {
         }
 
         scrollDispatching = true
+        val handledByNode = performAccessibilityScroll(axis, delta)
+        Log.v(TAG, "scroll axis=$axis delta=$delta nodeHandled=$handledByNode")
+        if (handledByNode) {
+            finishScrollGesture()
+            return
+        }
+
         val accepted = dispatchScrollGesture(axis, delta)
         if (!accepted) {
             scrollDispatching = false
             scheduleScrollFlush(50L)
+        }
+    }
+
+    private fun performAccessibilityScroll(axis: String, delta: Int): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val actions = scrollActionIds(axis, delta)
+        val repetitions = (abs(delta) / 120).coerceIn(1, 5)
+        val candidates = mutableListOf<AccessibilityNodeInfo>()
+
+        root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { candidates += it }
+        root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)?.let { candidates += it }
+        if (root.isScrollable) candidates += root
+        collectScrollableNodes(root, candidates, depth = 0)
+
+        var handled = false
+        repeat(repetitions) {
+            for (node in candidates) {
+                for (action in actions) {
+                    if (node.performAction(action)) {
+                        handled = true
+                        return@repeat
+                    }
+                }
+            }
+        }
+        return handled
+    }
+
+    private fun scrollActionIds(axis: String, delta: Int): IntArray {
+        return if (axis == "horizontal") {
+            if (delta > 0) {
+                intArrayOf(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id,
+                    AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
+                )
+            } else {
+                intArrayOf(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id,
+                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD,
+                )
+            }
+        } else {
+            if (delta > 0) {
+                intArrayOf(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id,
+                    AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
+                )
+            } else {
+                intArrayOf(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id,
+                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD,
+                )
+            }
+        }
+    }
+
+    private fun collectScrollableNodes(
+        node: AccessibilityNodeInfo,
+        out: MutableList<AccessibilityNodeInfo>,
+        depth: Int,
+    ) {
+        if (depth > 8) return
+        if (node.isScrollable) out += node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectScrollableNodes(child, out, depth + 1)
         }
     }
 
@@ -182,10 +254,10 @@ class XRAccessibilityService : AccessibilityService() {
         val h = metrics.heightPixels.toFloat()
         val cx = w / 2f
         val cy = h / 2f
-        val rawDist = (delta * 4f).coerceIn(-900f, 900f)
+        val rawDist = (delta * 8f).coerceIn(-1400f, 1400f)
         if (abs(rawDist) < 1f) return false
         val dist = if (abs(rawDist) < 80f) {
-            if (rawDist > 0f) 80f else -80f
+            if (rawDist > 0f) 140f else -140f
         } else {
             rawDist
         }

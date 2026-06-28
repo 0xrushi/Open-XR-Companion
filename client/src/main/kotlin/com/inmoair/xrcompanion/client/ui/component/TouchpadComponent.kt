@@ -36,7 +36,6 @@ enum class TouchpadMode { CURSOR, DIRECT }
  *   Finger movement nudges a virtual cursor by a *delta*; the glasses show the cursor
  *   moving. Taps act on wherever the cursor currently sits, not where you touched.
  *    - Finger drag                         → onCursorMove(dxNorm, dyNorm) continuously
- *    - Two-finger drag                     → onCursorScroll(dx, dy) continuously
  *    - Finger down + up, no movement       → onCursorTap()
  *    - Two quick taps                      → onCursorDoubleTap()
  *    - Finger held still                   → onCursorLongPress()
@@ -54,7 +53,6 @@ fun TouchpadSurface(
     onSwipe: (x1: Float, y1: Float, x2: Float, y2: Float) -> Unit,
     // Cursor-mode callbacks
     onCursorMove: (dxNorm: Float, dyNorm: Float) -> Unit = { _, _ -> },
-    onCursorScroll: (dx: Int, dy: Int) -> Unit = { _, _ -> },
     onCursorTap: () -> Unit = {},
     onCursorDoubleTap: () -> Unit = {},
     onCursorLongPress: () -> Unit = {},
@@ -83,9 +81,7 @@ fun TouchpadSurface(
                     var prevPos   = startPos          // for incremental cursor deltas
                     var isDrag    = false
                     var longFired = false
-                    var twoFingerScroll = false
-                    var scrollAccumX = 0f
-                    var scrollAccumY = 0f
+                    var multiTouch = false
 
                     // Long-press fires if finger sits still long enough
                     var lpJob: Job? = scope.launch {
@@ -115,29 +111,10 @@ fun TouchpadSurface(
                             }
 
                             if (mode == TouchpadMode.CURSOR && pressedChanges.size >= 2) {
-                                twoFingerScroll = true
+                                multiTouch = true
                                 isDrag = true
                                 lpJob?.cancel()
                                 lpJob = null
-
-                                val pair = pressedChanges.take(2)
-                                val curCentroid = Offset(
-                                    (pair[0].position.x + pair[1].position.x) / 2f,
-                                    (pair[0].position.y + pair[1].position.y) / 2f,
-                                )
-                                val prevCentroid = Offset(
-                                    (pair[0].previousPosition.x + pair[1].previousPosition.x) / 2f,
-                                    (pair[0].previousPosition.y + pair[1].previousPosition.y) / 2f,
-                                )
-                                scrollAccumX += (curCentroid.x - prevCentroid.x) * 6f
-                                scrollAccumY += -(curCentroid.y - prevCentroid.y) * 6f
-                                val dx = scrollAccumX.toInt()
-                                val dy = scrollAccumY.toInt()
-                                if (dx != 0 || dy != 0) {
-                                    onCursorScroll(dx, dy)
-                                    scrollAccumX -= dx
-                                    scrollAccumY -= dy
-                                }
                                 event.changes.forEach { it.consume() }
                                 continue
                             }
@@ -178,7 +155,7 @@ fun TouchpadSurface(
 
                     if (mode == TouchpadMode.CURSOR) {
                         // Drag already moved the cursor; only a stationary touch is a click.
-                        if (!isDrag && !twoFingerScroll) {
+                        if (!isDrag && !multiTouch) {
                             val now     = System.currentTimeMillis()
                             val prevAge = now - lastTapTime
                             if (prevAge < doubleTapMs) {
@@ -247,7 +224,7 @@ fun VerticalScrollStrip(
                         if (change.pressed) {
                             val dy = change.position.y - lastY
                             lastY  = change.position.y
-                            scrollAccumY += -(dy * 2.5f)
+                            scrollAccumY += -(dy * 7.5f)
                             val delta = scrollAccumY.toInt()
                             if (delta != 0) {
                                 onScroll(delta)
@@ -287,7 +264,7 @@ fun HorizontalScrollStrip(
                         if (change.pressed) {
                             val dx = change.position.x - lastX
                             lastX  = change.position.x
-                            scrollAccumX += dx * 2.5f
+                            scrollAccumX += dx * 7.5f
                             val delta = scrollAccumX.toInt()
                             if (delta != 0) {
                                 onScroll(delta)

@@ -44,6 +44,11 @@ class TouchCommandHandler @Inject constructor() {
     }
 
     fun handleScroll(cmd: XRCommand) {
-        XRAccessibilityService.instance?.injectScroll(cmd.axis, cmd.delta)
+        val svc = XRAccessibilityService.instance ?: run {
+            Log.w(TAG, "Accessibility service not running for scroll")
+            return
+        }
+        Log.v(TAG, "scroll axis=${cmd.axis} delta=${cmd.delta}")
+        svc.injectScroll(cmd.axis, cmd.delta)
     }
 }
