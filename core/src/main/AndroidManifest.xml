@@ -94,6 +94,20 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Hidden input method used for remote typing without showing the glasses keyboard. -->
+        <service
+            android:name=".ime.XRInputMethodService"
+            android:exported="true"
+            android:label="XR Remote Keyboard"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/xr_input_method" />
+        </service>
+
         <!-- Boot receiver to auto-start server -->
         <receiver
             android:name=".service.BootReceiver"

@@ -353,9 +353,7 @@ fun ControlScreen(
                                 repeat(oldLen - newLen) { viewModel.sendBackspace() }
                             }
                             newLen > oldLen -> {
-                                // The cursor is always at the end (sentinel + new chars), so
-                                // new chars = everything after the sentinel length.
-                                val added = new.text.drop(sentinel.length)
+                                val added = new.text.drop(oldLen)
                                 if (added.isNotEmpty()) {
                                     val text = added.replace("\n", "")
                                     if (text.isNotEmpty()) viewModel.sendText(text)
@@ -366,9 +364,12 @@ fun ControlScreen(
                                 }
                             }
                         }
-                        // Always reset to sentinel with cursor at end so the buffer
-                        // never drains (preventing future backspace events) or grows.
-                        keyboardText = sentinelValue()
+                        // Keep the local hidden field stable for the whole keyboard session.
+                        // Resetting it after every key makes Gboard leave the 123/symbol layer.
+                        keyboardText = new.copy(
+                            text = new.text.replace("\n", ""),
+                            selection = TextRange(new.text.replace("\n", "").length),
+                        )
                     },
                     modifier = Modifier
                         .size(1.dp)

@@ -37,15 +37,19 @@ class XRAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         cursorOverlay = VirtualCursorOverlay(this)
+        setSoftKeyboardHidden(true)
         Log.i(TAG, "Accessibility service connected")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        setSoftKeyboardHidden(false)
         scrollFlushJob?.cancel()
         scrollFlushJob = null
         cursorOverlay?.destroy()
         cursorOverlay = null
+        lastEditableNode?.recycle()
+        lastEditableNode = null
         instance = null
         Log.i(TAG, "Accessibility service destroyed")
     }
@@ -63,14 +67,19 @@ class XRAccessibilityService : AccessibilityService() {
     //   • injectText / injectBackspace update the shadow and pass it to
     //     ACTION_SET_TEXT — no further reads from the node.
     private var shadowText: String = ""
+    private var lastEditableNode: AccessibilityNodeInfo? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_VIEW_FOCUSED) return
         val src = event.source ?: return
         if (!src.isEditable) return
+        setSoftKeyboardHidden(true)
+        lastEditableNode?.recycle()
+        lastEditableNode = AccessibilityNodeInfo.obtain(src)
         // Read the real text once on focus, treating hint text as empty.
         val rawText = src.text?.toString() ?: ""
         shadowText = if (src.isShowingHintText || rawText.isEmpty()) "" else rawText
+        Log.v(TAG, "Editable focused class=${src.className} pkg=${src.packageName} textLength=${shadowText.length}")
     }
 
     override fun onInterrupt() = Unit
@@ -101,8 +110,9 @@ class XRAccessibilityService : AccessibilityService() {
 
     /** Single tap */
     fun injectTap(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y) }
-        dispatchGesture(buildGesture(path, 50L, 0L), null, null)
+        val (safeX, safeY) = clampToDisplay(x, y)
+        val path = Path().apply { moveTo(safeX, safeY) }
+        safeDispatchGesture(buildGesture(path, 50L, 0L), null)
     }
 
     /** Double tap */
@@ -116,14 +126,17 @@ class XRAccessibilityService : AccessibilityService() {
 
     /** Long press */
     fun injectLongPress(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y) }
-        dispatchGesture(buildGesture(path, 800L, 0L), null, null)
+        val (safeX, safeY) = clampToDisplay(x, y)
+        val path = Path().apply { moveTo(safeX, safeY) }
+        safeDispatchGesture(buildGesture(path, 800L, 0L), null)
     }
 
     /** Swipe from (x1,y1) to (x2,y2) */
     fun injectSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 200L) {
-        val path = Path().apply { moveTo(x1, y1); lineTo(x2, y2) }
-        dispatchGesture(buildGesture(path, durationMs, 0L), null, null)
+        val (safeX1, safeY1) = clampToDisplay(x1, y1)
+        val (safeX2, safeY2) = clampToDisplay(x2, y2)
+        val path = Path().apply { moveTo(safeX1, safeY1); lineTo(safeX2, safeY2) }
+        safeDispatchGesture(buildGesture(path, durationMs, 0L), null)
     }
 
     /** Scroll by injecting a swipe in the opposite direction */
@@ -263,14 +276,18 @@ class XRAccessibilityService : AccessibilityService() {
         }
         val path = Path().apply {
             if (axis == "vertical") {
-                moveTo(cx, cy)
-                lineTo(cx, cy - dist)
+                val (startX, startY) = clampToDisplay(cx, cy)
+                val (endX, endY) = clampToDisplay(cx, cy - dist)
+                moveTo(startX, startY)
+                lineTo(endX, endY)
             } else {
-                moveTo(cx, cy)
-                lineTo(cx - dist, cy)
+                val (startX, startY) = clampToDisplay(cx, cy)
+                val (endX, endY) = clampToDisplay(cx - dist, cy)
+                moveTo(startX, startY)
+                lineTo(endX, endY)
             }
         }
-        return dispatchGesture(
+        return safeDispatchGesture(
             buildGesture(path, 90L, 0L),
             object : GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
@@ -281,7 +298,6 @@ class XRAccessibilityService : AccessibilityService() {
                     scope.launch { finishScrollGesture() }
                 }
             },
-            null,
         )
     }
 
@@ -307,15 +323,19 @@ class XRAccessibilityService : AccessibilityService() {
                     shadowText,
                 )
             }
-            focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val handled = focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            Log.v(TAG, "injectText len=${text.length} shadowLen=${shadowText.length} handled=$handled")
         } else {
+            Log.w(TAG, "No focused editable node for text; trying last editable and paste fallback")
+            if (performSetTextOnLastEditable(text)) return
             // No focused editable node — fall back to clipboard paste.
             try {
                 val cm = getSystemService(android.content.ClipboardManager::class.java)
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("xr_input", text))
-                rootInActiveWindow
+                val pasted = rootInActiveWindow
                     ?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                     ?.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                Log.v(TAG, "Clipboard paste fallback handled=$pasted")
             } catch (e: Exception) {
                 Log.w(TAG, "Clipboard fallback failed: ${e.message}")
             }
@@ -332,7 +352,8 @@ class XRAccessibilityService : AccessibilityService() {
                 shadowText,
             )
         }
-        focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        val handled = focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        Log.v(TAG, "injectBackspace shadowLen=${shadowText.length} handled=$handled")
     }
 
     fun injectEnter() {
@@ -404,6 +425,57 @@ class XRAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return null
         return root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?.takeIf { it.isEditable }
+    }
+
+    private fun performSetTextOnLastEditable(text: String): Boolean {
+        val node = lastEditableNode ?: return false
+        return try {
+            val nextText = shadowText + text
+            val args = android.os.Bundle().apply {
+                putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    nextText,
+                )
+            }
+            val handled = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (handled) shadowText = nextText
+            Log.v(TAG, "lastEditable injectText len=${text.length} shadowLen=${nextText.length} handled=$handled")
+            handled
+        } catch (e: Exception) {
+            Log.w(TAG, "Last editable text injection failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun clampToDisplay(x: Float, y: Float): Pair<Float, Float> {
+        val metrics = resources.displayMetrics
+        val maxX = (metrics.widthPixels - 1).coerceAtLeast(0).toFloat()
+        val maxY = (metrics.heightPixels - 1).coerceAtLeast(0).toFloat()
+        return x.coerceIn(0f, maxX) to y.coerceIn(0f, maxY)
+    }
+
+    private fun safeDispatchGesture(
+        gesture: GestureDescription,
+        callback: GestureResultCallback?,
+    ): Boolean {
+        return try {
+            dispatchGesture(gesture, callback, null)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Gesture rejected: ${e.message}")
+            false
+        }
+    }
+
+    private fun setSoftKeyboardHidden(hidden: Boolean) {
+        val mode = if (hidden) SHOW_MODE_HIDDEN else SHOW_MODE_AUTO
+        val modeName = if (hidden) "hidden" else "auto"
+        runCatching {
+            softKeyboardController.setShowMode(mode)
+        }.onSuccess { accepted ->
+            if (!accepted) Log.w(TAG, "Soft keyboard show mode $modeName was rejected")
+        }.onFailure {
+            Log.w(TAG, "Failed to set soft keyboard show mode $modeName: ${it.message}")
+        }
     }
 
     private fun buildGesture(path: Path, duration: Long, startTime: Long): GestureDescription {
