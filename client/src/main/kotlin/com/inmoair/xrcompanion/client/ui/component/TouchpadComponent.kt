@@ -66,6 +66,7 @@ fun TouchpadSurface(
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
+    val secondaryColor = TextSecondary
 
     var lastTapTime by remember { mutableLongStateOf(0L) }
     var lastTapPos  by remember { mutableStateOf(Offset.Zero) }
@@ -214,7 +215,7 @@ fun TouchpadSurface(
                 y += step
             }
 
-            val icon = TextSecondary.copy(alpha = 0.58f)
+            val icon = secondaryColor.copy(alpha = 0.58f)
             val w = 42.dp.toPx()
             val h = 54.dp.toPx()
             val left = center.x - w / 2f
@@ -243,11 +244,13 @@ fun VerticalScrollStrip(
 ) {
     var lastY by remember { mutableFloatStateOf(0f) }
     var scrollAccumY by remember { mutableFloatStateOf(0f) }
+    val secondaryColor = TextSecondary
+    val stripColor = TouchpadSurface
     Box(
         modifier = modifier
             .width(28.dp)
             .fillMaxHeight()
-            .background(Color(0xFF1A2333), RoundedCornerShape(18.dp))
+            .background(stripColor, RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -274,7 +277,7 @@ fun VerticalScrollStrip(
             }
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val arrow = TextSecondary.copy(alpha = 0.85f)
+            val arrow = secondaryColor.copy(alpha = 0.85f)
             val cx = size.width / 2f
             drawPath(
                 androidx.compose.ui.graphics.Path().apply {
@@ -295,7 +298,7 @@ fun VerticalScrollStrip(
                 arrow,
             )
             drawRoundRect(
-                color = TextSecondary.copy(alpha = 0.56f),
+                color = secondaryColor.copy(alpha = 0.56f),
                 topLeft = Offset(cx - 3.dp.toPx(), size.height / 2f - 24.dp.toPx()),
                 size = Size(6.dp.toPx(), 48.dp.toPx()),
                 cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
@@ -311,11 +314,13 @@ fun HorizontalScrollStrip(
 ) {
     var lastX by remember { mutableFloatStateOf(0f) }
     var scrollAccumX by remember { mutableFloatStateOf(0f) }
+    val secondaryColor = TextSecondary
+    val stripColor = TouchpadSurface
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(28.dp)
-            .background(Color(0xFF1A2333), RoundedCornerShape(18.dp))
+            .background(stripColor, RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -342,7 +347,7 @@ fun HorizontalScrollStrip(
             }
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val arrow = TextSecondary.copy(alpha = 0.85f)
+            val arrow = secondaryColor.copy(alpha = 0.85f)
             val cy = size.height / 2f
             drawPath(
                 androidx.compose.ui.graphics.Path().apply {
@@ -363,7 +368,7 @@ fun HorizontalScrollStrip(
                 arrow,
             )
             drawRoundRect(
-                color = TextSecondary.copy(alpha = 0.56f),
+                color = secondaryColor.copy(alpha = 0.56f),
                 topLeft = Offset(size.width / 2f - 42.dp.toPx(), cy - 3.dp.toPx()),
                 size = Size(84.dp.toPx(), 6.dp.toPx()),
                 cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),

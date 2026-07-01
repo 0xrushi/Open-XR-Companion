@@ -3,6 +3,7 @@ package com.inmoair.xrcompanion.client.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -34,6 +35,8 @@ class DeviceRepository @Inject constructor(
         private val KEY_TOUCH_SENSITIVITY = floatPreferencesKey("touch_sensitivity")
         private val KEY_SCROLL_SPEED = floatPreferencesKey("scroll_speed")
         private val KEY_CUSTOM_BUTTONS = stringPreferencesKey("custom_buttons")
+        private val KEY_THEME = stringPreferencesKey("theme")
+        private val KEY_SHOW_SPACEWALKER_SETTINGS = booleanPreferencesKey("show_spacewalker_settings")
     }
 
     val lastDevice: Flow<DiscoveryMessage?> = store.data.map { prefs ->
@@ -46,6 +49,9 @@ class DeviceRepository @Inject constructor(
 
     val touchSensitivity: Flow<Float> = store.data.map { it[KEY_TOUCH_SENSITIVITY] ?: 1.0f }
     val scrollSpeed: Flow<Float>      = store.data.map { it[KEY_SCROLL_SPEED]      ?: 1.0f }
+    val themeKey: Flow<String> = store.data.map { it[KEY_THEME] ?: "dark" }
+    val showSpaceWalkerSettings: Flow<Boolean> =
+        store.data.map { it[KEY_SHOW_SPACEWALKER_SETTINGS] ?: true }
 
     suspend fun saveLastDevice(device: DiscoveryMessage) {
         store.edit { it[KEY_LAST_DEVICE] = json.encodeToString(device) }
@@ -57,6 +63,10 @@ class DeviceRepository @Inject constructor(
 
     suspend fun setTouchSensitivity(v: Float) { store.edit { it[KEY_TOUCH_SENSITIVITY] = v } }
     suspend fun setScrollSpeed(v: Float)      { store.edit { it[KEY_SCROLL_SPEED] = v } }
+    suspend fun setThemeKey(key: String)      { store.edit { it[KEY_THEME] = key } }
+    suspend fun setShowSpaceWalkerSettings(show: Boolean) {
+        store.edit { it[KEY_SHOW_SPACEWALKER_SETTINGS] = show }
+    }
 
     // ── Custom buttons ────────────────────────────────────────────────────────
 

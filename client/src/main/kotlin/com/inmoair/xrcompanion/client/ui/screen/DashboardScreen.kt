@@ -148,6 +148,18 @@ fun DashboardScreen(
                     )
                 }
             }
+            if (uiState.showSpaceWalkerSettings) {
+                item {
+                    SpaceWalkerCard(
+                        uiState = uiState,
+                        onZoomIn = { viewModel.swZoomIn() },
+                        onZoomOut = { viewModel.swZoomOut() },
+                        onRotate = { viewModel.swSetRotation(it) },
+                        onAddScreen = { viewModel.swAddScreen() },
+                        onRemoveScreen = { viewModel.swRemoveScreen() },
+                    )
+                }
+            }
         }
 
         uiState.screenshotBitmap?.let { bitmap ->
@@ -261,7 +273,7 @@ private fun DashboardHeader() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "Smart Companion",
+            "OpenXR Companion",
             style = MaterialTheme.typography.headlineLarge.copy(
                 fontSize = 31.sp,
                 fontWeight = FontWeight.Bold,

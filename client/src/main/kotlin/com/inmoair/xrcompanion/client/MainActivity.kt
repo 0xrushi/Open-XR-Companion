@@ -9,10 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.inmoair.xrcompanion.client.data.DeviceRepository
 import com.inmoair.xrcompanion.client.ui.navigation.AppNavigation
+import com.inmoair.xrcompanion.client.ui.theme.ClientThemeChoice
 import com.inmoair.xrcompanion.client.ui.theme.DarkBackground
 import com.inmoair.xrcompanion.client.ui.theme.XRClientTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -33,7 +36,8 @@ class MainActivity : ComponentActivity() {
         requestPermissionsIfNeeded()
 
         setContent {
-            XRClientTheme {
+            val themeKey by deviceRepository.themeKey.collectAsState(initial = ClientThemeChoice.DARK.key)
+            XRClientTheme(themeChoice = ClientThemeChoice.fromKey(themeKey)) {
                 Surface(modifier = Modifier.fillMaxSize(), color = DarkBackground) {
                     val navController = rememberNavController()
                     AppNavigation(

@@ -38,7 +38,7 @@ data class ControlUiState(
     val scrollSpeed: Float = 1f,
     // Touchpad mode: true = relative cursor/trackpad (glasses cursor moves);
     // false = direct absolute touch (mobile mirror).
-    val cursorMode: Boolean = false,
+    val cursorMode: Boolean = true,
     val cursorSpeed: Float = 1.6f,
     // Screenshot
     val isCapturingScreenshot: Boolean = false,
@@ -64,6 +64,10 @@ class ControlViewModel @Inject constructor(
     val customButtons: StateFlow<List<CustomButton>> = deviceRepository.customButtons
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // A virtual cursor position is tracked on the client and pushed to the glasses.
+    private var cursorX = 0.5f
+    private var cursorY = 0.5f
+
     init {
         viewModelScope.launch {
             voiceManager.state.collect { _uiState.value = _uiState.value.copy(voiceState = it) }
@@ -74,6 +78,7 @@ class ControlViewModel @Inject constructor(
         voiceManager.onResult = { text ->
             commandSender.sendText(text)
         }
+        commandSender.setCursorVisible(true, cursorX, cursorY)
         // Listen for screenshot results from the glasses
         viewModelScope.launch {
             wsClient.screenshots.collect { resp ->
@@ -115,11 +120,6 @@ class ControlViewModel @Inject constructor(
     fun onScrollH(delta: Int)                     = commandSender.sendScrollHorizontal(delta)
 
     // --- touchpad (cursor/relative mode) ---
-    // A virtual cursor position is tracked on the client and pushed to the glasses
-    // via sendMove. Taps act on the cursor's current location.
-    private var cursorX = 0.5f
-    private var cursorY = 0.5f
-
     fun toggleCursorMode() {
         val now = !_uiState.value.cursorMode
         _uiState.value = _uiState.value.copy(cursorMode = now)

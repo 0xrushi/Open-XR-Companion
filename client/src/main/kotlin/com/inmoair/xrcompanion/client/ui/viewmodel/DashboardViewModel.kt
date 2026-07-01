@@ -50,6 +50,7 @@ data class DashboardUiState(
     val castZoom: Float = 1f,
     val castOffsetY: Float = 0f,
     val castLandscape: Boolean = false,
+    val showSpaceWalkerSettings: Boolean = true,
     // SpaceWalker
     val swRotation: Float = 0f,
     val swScreenCount: Int = 1,
@@ -127,6 +128,11 @@ class DashboardViewModel @Inject constructor(
         viewModelScope.launch {
             discovery.isScanning.collectLatest { scanning ->
                 _uiState.value = _uiState.value.copy(isScanning = scanning)
+            }
+        }
+        viewModelScope.launch {
+            deviceRepository.showSpaceWalkerSettings.collectLatest { show ->
+                _uiState.value = _uiState.value.copy(showSpaceWalkerSettings = show)
             }
         }
         viewModelScope.launch {
