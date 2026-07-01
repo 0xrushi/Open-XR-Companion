@@ -2,6 +2,7 @@ package com.inmoair.xrcompanion.core.command
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -58,10 +59,30 @@ class AppControlHandler @Inject constructor(
     fun handle(cmd: XRCommand, socket: WebSocket) {
         when (cmd.action) {
             "list"                   -> scope.launch { sendAppList(socket) }
+            "launch"                 -> launchPackage(cmd.packageName, socket)
             "set_background_allowed" -> scope.launch {
                 setBackgroundAllowed(cmd.packageName, cmd.allowed, socket)
             }
             else -> Log.w(TAG, "Unknown apps action: ${cmd.action}")
+        }
+    }
+
+    private fun launchPackage(pkg: String, socket: WebSocket) {
+        if (pkg.isBlank()) {
+            socket.send("""{"type":"apps","action":"launch","status":"failed","message":"Missing package"}""")
+            return
+        }
+        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+        if (intent == null) {
+            socket.send("""{"type":"apps","action":"launch","status":"failed","package":"$pkg","message":"No launch intent"}""")
+            return
+        }
+        runCatching {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onSuccess {
+            socket.send("""{"type":"apps","action":"launch","status":"complete","package":"$pkg"}""")
+        }.onFailure { e ->
+            socket.send("""{"type":"apps","action":"launch","status":"failed","package":"$pkg","message":"${e.message ?: "Launch failed"}"}""")
         }
     }
 

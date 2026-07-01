@@ -11,6 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -164,88 +165,36 @@ fun ControlScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Control") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Screenshot button — shows spinner while capture is in progress
-                    if (uiState.isCapturingScreenshot) {
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(20.dp), color = AccentBlue, strokeWidth = 2.dp)
-                        }
-                    } else {
-                        IconButton(onClick = { viewModel.requestScreenshot() }) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Glasses screenshot", tint = AccentBlue)
-                        }
-                        IconButton(
-                            onClick = {
-                                viewModel.prepareLocalScreenshotCapture()
-                                localScreenshotLauncher.launch(
-                                    LocalScreenshotCapturer.createCaptureIntent(context),
-                                )
-                            },
-                        ) {
-                            Icon(Icons.Default.PhoneAndroid, contentDescription = "Phone screenshot", tint = AccentBlue)
-                        }
-                    }
-                    IconButton(onClick = { viewModel.pressSleep() }) {
-                        if (uiState.isSleeping) {
-                            Icon(
-                                Icons.Default.WbSunny,
-                                contentDescription = "Wake",
-                                tint = AccentBlue,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        } else {
-                            Text(
-                                text = "ZZZ",
-                                color = StatusYellow,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = (-0.5).sp,
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SurfaceDark),
-            )
-        },
-        containerColor = DarkBackground,
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // Tab row
-            TabRow(
-                selectedTabIndex = uiState.activeTab.ordinal,
-                containerColor = CardDark,
-                contentColor = AccentBlue,
-                modifier = Modifier.clip(RoundedCornerShape(10.dp)),
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+            ControlHeader(onBack = onBack)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ControlTab.values().forEach { tab ->
-                    Tab(
-                        selected = uiState.activeTab == tab,
-                        onClick = { viewModel.setTab(tab) },
-                        text = {
-                            Text(
-                                tab.name.replace('_', ' '),
-                                fontSize = 13.sp,
-                                fontWeight = if (uiState.activeTab == tab) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    )
-                }
+                PowerButton(
+                    icon = Icons.Default.Bedtime,
+                    label = "Sleep",
+                    onClick = { viewModel.pressSleep() },
+                    modifier = Modifier.weight(1f),
+                )
+                PowerButton(
+                    icon = Icons.Default.PowerSettingsNew,
+                    label = "Shutdown",
+                    onClick = { viewModel.pressShutdown() },
+                    modifier = Modifier.weight(1f),
+                )
             }
+            ControlSegmentedTabs(
+                activeTab = uiState.activeTab,
+                onTouchpad = { viewModel.setTab(ControlTab.TOUCHPAD) },
+                onRemote = { viewModel.setTab(ControlTab.REMOTE) },
+            )
 
             // Main content
             when (uiState.activeTab) {
@@ -390,7 +339,6 @@ fun ControlScreen(
                     keyboardActions = enterKeyboardActions,
                 )
             }
-        }
     }
 
     // ── Screenshot viewer ─────────────────────────────────────────────────────
@@ -420,6 +368,116 @@ fun ControlScreen(
     }
 }
 
+@Composable
+private fun ControlHeader(onBack: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(46.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Default.ArrowBack,
+                contentDescription = "Back",
+                tint = TextPrimary,
+                modifier = Modifier.size(32.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "Control Mode",
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontSize = 31.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun PowerButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(58.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = ControlSurface),
+        contentPadding = PaddingValues(horizontal = 14.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = TextPrimary.copy(alpha = 0.9f), modifier = Modifier.size(27.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = TextPrimary.copy(alpha = 0.88f),
+        )
+    }
+}
+
+@Composable
+private fun ControlSegmentedTabs(
+    activeTab: ControlTab,
+    onTouchpad: () -> Unit,
+    onRemote: () -> Unit,
+) {
+    val items = listOf(
+        "Touchpad" to onTouchpad,
+        "Remote" to onRemote,
+    )
+    val activeIndex = if (activeTab == ControlTab.REMOTE) 1 else 0
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, TextSecondary, RoundedCornerShape(18.dp)),
+    ) {
+        items.forEachIndexed { index, (label, action) ->
+            val selected = index == activeIndex
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(if (selected) ControlSurface else Color.Transparent)
+                    .clickable(onClick = action),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (selected && index == 0) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = TextPrimary,
+                        modifier = Modifier.size(25.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = TextPrimary.copy(alpha = if (selected) 0.95f else 0.88f),
+                )
+            }
+            if (index < items.lastIndex) {
+                Box(
+                    Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(TextSecondary),
+                )
+            }
+        }
+    }
+}
+
 private enum class CropHandle { NONE, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, BODY }
 
 @Composable
@@ -430,164 +488,55 @@ private fun ScreenshotDialog(
     onSave: (l: Float, t: Float, r: Float, b: Float) -> Unit,
     onDiscard: () -> Unit,
 ) {
-    // Crop rect in normalized [0,1] coords
-    var cl by remember { mutableFloatStateOf(0f) }
-    var ct by remember { mutableFloatStateOf(0f) }
-    var cr by remember { mutableFloatStateOf(1f) }
-    var cb by remember { mutableFloatStateOf(1f) }
-
     Dialog(
         onDismissRequest = onDiscard,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.88f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(CardDark)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                .background(Color(0xFF1A1F26))
+                .padding(horizontal = 16.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-
-            // Crop area — image + interactive overlay
-            Box(
+            Text(
+                "Screen capture",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            )
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = title,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp)),
-            ) {
-                var boxSize by remember { mutableStateOf(IntSize.Zero) }
-                var activeHandle by remember { mutableStateOf(CropHandle.NONE) }
-                val handlePx = 30f   // touch radius in pixels
+                    .height(255.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black),
+            )
 
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Screenshot",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .onSizeChanged { boxSize = it },
-                )
-
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { pos ->
-                                    val w = boxSize.width.toFloat()
-                                    val h = boxSize.height.toFloat()
-                                    val corners = listOf(
-                                        CropHandle.TOP_LEFT     to Offset(cl * w, ct * h),
-                                        CropHandle.TOP_RIGHT    to Offset(cr * w, ct * h),
-                                        CropHandle.BOTTOM_LEFT  to Offset(cl * w, cb * h),
-                                        CropHandle.BOTTOM_RIGHT to Offset(cr * w, cb * h),
-                                    )
-                                    activeHandle = corners
-                                        .minByOrNull { (_, p) -> (pos - p).getDistance() }
-                                        ?.takeIf { (_, p) -> (pos - p).getDistance() < handlePx * 2.5f }
-                                        ?.first
-                                        ?: CropHandle.BODY
-                                },
-                                onDragEnd   = { activeHandle = CropHandle.NONE },
-                                onDragCancel = { activeHandle = CropHandle.NONE },
-                                onDrag = { change, delta ->
-                                    change.consume()
-                                    val w = boxSize.width.toFloat().coerceAtLeast(1f)
-                                    val h = boxSize.height.toFloat().coerceAtLeast(1f)
-                                    val dx = delta.x / w
-                                    val dy = delta.y / h
-                                    val minSize = 0.05f
-                                    when (activeHandle) {
-                                        CropHandle.TOP_LEFT -> {
-                                            cl = (cl + dx).coerceIn(0f, cr - minSize)
-                                            ct = (ct + dy).coerceIn(0f, cb - minSize)
-                                        }
-                                        CropHandle.TOP_RIGHT -> {
-                                            cr = (cr + dx).coerceIn(cl + minSize, 1f)
-                                            ct = (ct + dy).coerceIn(0f, cb - minSize)
-                                        }
-                                        CropHandle.BOTTOM_LEFT -> {
-                                            cl = (cl + dx).coerceIn(0f, cr - minSize)
-                                            cb = (cb + dy).coerceIn(ct + minSize, 1f)
-                                        }
-                                        CropHandle.BOTTOM_RIGHT -> {
-                                            cr = (cr + dx).coerceIn(cl + minSize, 1f)
-                                            cb = (cb + dy).coerceIn(ct + minSize, 1f)
-                                        }
-                                        CropHandle.BODY -> {
-                                            val rw = cr - cl; val rh = cb - ct
-                                            cl = (cl + dx).coerceIn(0f, 1f - rw)
-                                            ct = (ct + dy).coerceIn(0f, 1f - rh)
-                                            cr = cl + rw; cb = ct + rh
-                                        }
-                                        else -> {}
-                                    }
-                                },
-                            )
-                        },
-                ) {
-                    val w = size.width; val h = size.height
-                    val lx = cl * w;  val ty = ct * h
-                    val rx = cr * w;  val by_ = cb * h
-
-                    // Dark overlay outside selection
-                    val dim = Color(0x99000000)
-                    drawRect(dim, size = GeomSize(w, ty))                                   // top
-                    drawRect(dim, Offset(0f, by_), GeomSize(w, h - by_))                    // bottom
-                    drawRect(dim, Offset(0f, ty), GeomSize(lx, by_ - ty))                   // left
-                    drawRect(dim, Offset(rx, ty), GeomSize(w - rx, by_ - ty))               // right
-
-                    // Selection border
-                    drawRect(
-                        color = Color.White,
-                        topLeft = Offset(lx, ty),
-                        size = GeomSize(rx - lx, by_ - ty),
-                        style = Stroke(width = 2f),
-                    )
-
-                    // Rule-of-thirds grid
-                    val grid = Color(0x55FFFFFF)
-                    for (i in 1..2) {
-                        val gx = lx + (rx - lx) / 3 * i
-                        val gy = ty + (by_ - ty) / 3 * i
-                        drawLine(grid, Offset(gx, ty), Offset(gx, by_), 1f)
-                        drawLine(grid, Offset(lx, gy), Offset(rx, gy), 1f)
-                    }
-
-                    // Corner handles
-                    listOf(Offset(lx, ty), Offset(rx, ty), Offset(lx, by_), Offset(rx, by_))
-                        .forEach { p ->
-                            drawCircle(Color.White, handlePx * 0.7f, p)
-                            drawCircle(Color(0xFF1E88E5.toInt()), handlePx * 0.4f, p)
-                        }
-                }
-            }
-
-            // Buttons
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 OutlinedButton(
                     onClick = onDiscard,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed),
+                    modifier = Modifier.weight(1f).height(58.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Discard")
+                    Text("Cancel", style = MaterialTheme.typography.titleMedium)
                 }
                 Button(
-                    onClick = { onSave(cl, ct, cr, cb) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    onClick = { onSave(0f, 0f, 1f, 1f) },
+                    modifier = Modifier.weight(1f).height(58.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171D24)),
                 ) {
-                    Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(saveLabel)
+                    Icon(Icons.Default.Download, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(25.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Download", style = MaterialTheme.typography.titleMedium, color = AccentBlue)
                 }
             }
         }
@@ -600,30 +549,31 @@ private fun ColumnScope.TouchpadTab(
     viewModel: ControlViewModel,
     onToggleKeyboard: () -> Unit,
 ) {
-    // Mode toggle row: Cursor (relative trackpad) vs Direct (absolute mobile touch)
     Row(
         Modifier
             .fillMaxWidth()
-            .background(CardDark, RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .height(56.dp)
+            .background(CardDark, RoundedCornerShape(16.dp))
+            .border(1.dp, DividerColor, RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             if (uiState.cursorMode) Icons.Default.Mouse else Icons.Default.TouchApp,
             contentDescription = null,
             tint = AccentBlue,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(24.dp),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                if (uiState.cursorMode) "Cursor mode" else "Direct touch",
-                style = MaterialTheme.typography.labelLarge,
+                if (uiState.cursorMode) "Cursor mode" else "Touch mode",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
             )
             Text(
-                if (uiState.cursorMode) "Trackpad — moves the glasses cursor"
-                else "Absolute — mirrors a phone screen 1:1",
-                style = MaterialTheme.typography.labelSmall,
+                if (uiState.cursorMode) "Relative trackpad movement" else "Direct touch input",
+                style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary,
             )
         }
@@ -635,12 +585,13 @@ private fun ColumnScope.TouchpadTab(
 
     val mode = if (uiState.cursorMode) TouchpadMode.CURSOR else TouchpadMode.DIRECT
 
-    // Central area: scroll strips + touchpad
-    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Left scroll strip
+    Row(
+        Modifier
+            .weight(1f)
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         VerticalScrollStrip(onScroll = { viewModel.onScrollV(it) })
-
-        // Touchpad — behaviour depends on mode
         TouchpadSurface(
             modifier          = Modifier.weight(1f),
             mode              = mode,
@@ -653,27 +604,52 @@ private fun ColumnScope.TouchpadTab(
             onCursorDoubleTap = { viewModel.cursorDoubleTap() },
             onCursorLongPress = { viewModel.cursorLongPress() },
         )
-
-        // Right scroll strip
         VerticalScrollStrip(onScroll = { viewModel.onScrollV(it) })
     }
 
-    // Horizontal scroll strip
     HorizontalScrollStrip(onScroll = { viewModel.onScrollH(it) })
 
-    // Bottom action bar
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CtrlButton(Icons.Default.ArrowBack, "Back")    { viewModel.pressBack() }
-        CtrlButton(Icons.Default.Home, "Home")         { viewModel.pressHome() }
-        CtrlButton(Icons.Default.GridView, "Recents")  { viewModel.pressRecents() }
-        CtrlButton(Icons.Default.Keyboard, "Keyboard") { onToggleKeyboard() }
-        CtrlButton(Icons.Default.BackHand, "Click") {
+        LargeControlButton(
+            icon = Icons.Default.Mouse,
+            label = "Left",
+            modifier = Modifier.weight(1f),
+        ) {
             if (uiState.cursorMode) viewModel.cursorTap() else viewModel.onTap(0.5f, 0.5f)
         }
+        LargeControlButton(
+            icon = Icons.Default.Mouse,
+            label = "Right",
+            modifier = Modifier.weight(1f),
+        ) {
+            viewModel.onLongPress(0.5f, 0.5f)
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        LargeControlButton(
+            icon = Icons.Default.Keyboard,
+            label = "Keyboard",
+            modifier = Modifier.weight(3f),
+        ) { onToggleKeyboard() }
+        LargeControlButton(
+            icon = Icons.Default.Backspace,
+            label = "Del",
+            modifier = Modifier.weight(1f),
+        ) { viewModel.sendBackspace() }
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        LargeControlButton(Icons.Default.ArrowBack, "Back", Modifier.weight(1f)) { viewModel.pressBack() }
+        LargeControlButton(Icons.Default.Home, "Home", Modifier.weight(1f)) { viewModel.pressHome() }
+        LargeControlButton(Icons.Default.GridView, "Recents", Modifier.weight(1f)) { viewModel.pressRecents() }
     }
 }
 
@@ -681,6 +657,25 @@ private fun ColumnScope.TouchpadTab(
 @Composable
 private fun RemoteTab(viewModel: ControlViewModel, onToggleKeyboard: () -> Unit) {
     val customButtons by viewModel.customButtons.collectAsState()
+    data class RemoteAction(
+        val icon: ImageVector,
+        val label: String,
+        val onClick: () -> Unit,
+    )
+    val systemActions = listOf(
+        RemoteAction(Icons.Default.ArrowBack, "Back") { viewModel.pressBack() },
+        RemoteAction(Icons.Default.Home, "Home") { viewModel.pressHome() },
+        RemoteAction(Icons.Default.GridView, "Recents") { viewModel.pressRecents() },
+        RemoteAction(Icons.Default.VolumeUp, "Vol+") { viewModel.pressVolumeUp() },
+        RemoteAction(Icons.Default.VolumeDown, "Vol-") { viewModel.pressVolumeDown() },
+        RemoteAction(Icons.Default.VolumeOff, "Mute") { viewModel.pressMute() },
+        RemoteAction(Icons.Default.WbSunny, "Bright+") { viewModel.pressBrightnessUp() },
+        RemoteAction(Icons.Default.BrightnessLow, "Bright-") { viewModel.pressBrightnessDown() },
+        RemoteAction(Icons.Default.Bedtime, "Sleep") { viewModel.pressSleep() },
+        RemoteAction(Icons.Default.Keyboard, "Keyboard") { onToggleKeyboard() },
+        RemoteAction(Icons.Default.Check, "Select") { viewModel.onTap(0.5f, 0.5f) },
+        RemoteAction(Icons.Default.Backspace, "Delete") { viewModel.sendBackspace() },
+    )
 
     // Dialog state: null = closed, non-null = editing (new button has empty id)
     var editingButton by remember { mutableStateOf<CustomButton?>(null) }
@@ -693,24 +688,22 @@ private fun RemoteTab(viewModel: ControlViewModel, onToggleKeyboard: () -> Unit)
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // ── Fixed system buttons ──────────────────────────────────────────────
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteBtn(Icons.Default.ArrowBack, "Back") { viewModel.pressBack() }
-            RemoteBtn(Icons.Default.Home, "Home") { viewModel.pressHome() }
-            RemoteBtn(Icons.Default.GridView, "Recents") { viewModel.pressRecents() }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteBtn(Icons.Default.VolumeUp, "Vol+") { viewModel.pressVolumeUp() }
-            RemoteBtn(Icons.Default.VolumeDown, "Vol-") { viewModel.pressVolumeDown() }
-            RemoteBtn(Icons.Default.Bedtime, "Sleep") { viewModel.pressSleep() }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteBtn(Icons.Default.WbSunny, "Bright+") { /* brightness up */ }
-            RemoteBtn(Icons.Default.BrightnessLow, "Bright-") { /* brightness down */ }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteBtn(Icons.Default.Keyboard, "Keyboard") { onToggleKeyboard() }
-            RemoteBtn(Icons.Default.Check, "Select") { viewModel.onTap(0.5f, 0.5f) }
-            RemoteBtn(Icons.Default.Backspace, "Delete") { viewModel.sendBackspace() }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            systemActions.chunked(3).forEach { row ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    row.forEach { action ->
+                        RemoteGridButton(
+                            icon = action.icon,
+                            label = action.label,
+                            onClick = action.onClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
 
         // ── Custom buttons section ────────────────────────────────────────────
@@ -904,6 +897,37 @@ private fun CustomButtonDialog(
 }
 
 @Composable
+private fun RemoteGridButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(78.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = CardDark),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = TextPrimary,
+                maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RemoteBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(
@@ -915,6 +939,31 @@ private fun RemoteBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
             Icon(icon, contentDescription = label, tint = AccentBlue, modifier = Modifier.size(26.dp))
         }
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+@Composable
+private fun LargeControlButton(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(64.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = ControlSurface),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(30.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = TextPrimary.copy(alpha = 0.9f),
+            maxLines = 1,
+        )
     }
 }
 

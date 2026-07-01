@@ -158,8 +158,12 @@ class ControlViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isSleeping = true)
         }
     }
+    fun pressShutdown() = commandSender.shutdown()
+    fun pressBrightnessUp() = commandSender.brightnessUp()
+    fun pressBrightnessDown() = commandSender.brightnessDown()
     fun pressVolumeUp()   = commandSender.volumeUp()
     fun pressVolumeDown() = commandSender.volumeDown()
+    fun pressMute() = commandSender.mute()
 
     // --- keyboard ---
     fun sendText(text: String)  = commandSender.sendText(text)

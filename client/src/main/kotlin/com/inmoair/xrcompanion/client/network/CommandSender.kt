@@ -66,11 +66,15 @@ class CommandSender @Inject constructor(
     fun setVolume(value: Float) =
         send(XRCommand(type = "system", action = "set_volume", floatValue = value))
 
+    fun brightnessUp()   = send(XRCommand(type = "system", action = "brightness_up"))
+    fun brightnessDown() = send(XRCommand(type = "system", action = "brightness_down"))
     fun volumeUp()   = send(XRCommand(type = "system", action = "volume_up"))
     fun volumeDown() = send(XRCommand(type = "system", action = "volume_down"))
     fun mute()       = send(XRCommand(type = "system", action = "mute"))
     fun sleep()      = send(XRCommand(type = "system", action = "sleep"))
     fun wake()       = send(XRCommand(type = "system", action = "wake"))
+    fun shutdown()   = send(XRCommand(type = "system", action = "shutdown"))
+    fun screenRecord() = send(XRCommand(type = "system", action = "screen_record"))
 
     // --- apps ---
     fun requestAppList() = send(XRCommand(type = "apps", action = "list"))
@@ -119,6 +123,22 @@ class CommandSender @Inject constructor(
                 eof = eof,
             )
         )
+
+    // --- phone cast ---
+    fun castStart() = send(XRCommand(type = "cast", action = "start"))
+    fun castFrame(base64Jpeg: String) =
+        send(XRCommand(type = "cast", action = "frame", data = base64Jpeg, format = "jpeg"))
+    fun castTransform(zoom: Float, offsetY: Float, landscape: Boolean) =
+        send(
+            XRCommand(
+                type = "cast",
+                action = "transform",
+                floatValue = zoom,
+                y = offsetY,
+                allowed = landscape,
+            )
+        )
+    fun castStop() = send(XRCommand(type = "cast", action = "stop"))
 
     private fun send(cmd: XRCommand) { client.sendCommand(cmd) }
     private fun now() = System.currentTimeMillis()

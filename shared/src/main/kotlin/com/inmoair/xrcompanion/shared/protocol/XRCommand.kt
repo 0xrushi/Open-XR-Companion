@@ -20,7 +20,7 @@ val xrJson = Json {
 // ---------------------------------------------------------------------------
 @Serializable
 data class XRCommand(
-    /** One of: touch | scroll | keyboard | system | apps | pairing | file | screenshot | spacewalker | ping */
+    /** One of: touch | scroll | keyboard | system | apps | pairing | file | screenshot | spacewalker | cast | ping */
     val type: String,
 
     // --- touch / gesture ---
@@ -46,7 +46,7 @@ data class XRCommand(
 
     // --- system ---
     /** set_brightness | set_volume | back | home | recents | sleep | shutdown |
-     *  volume_up | volume_down | brightness_up | brightness_down | mute */
+     *  volume_up | volume_down | brightness_up | brightness_down | mute | screen_record */
     val floatValue: Float = 0f,
 
     // --- apps ---

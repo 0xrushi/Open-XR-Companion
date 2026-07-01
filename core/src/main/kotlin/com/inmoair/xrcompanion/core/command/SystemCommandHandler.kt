@@ -3,6 +3,7 @@ package com.inmoair.xrcompanion.core.command
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.os.PowerManager
 import android.os.SystemClock
@@ -22,6 +23,7 @@ import org.java_websocket.WebSocket
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +32,7 @@ class SystemCommandHandler @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val TAG = "SystemHandler"
+    private val castDecoding = AtomicBoolean(false)
 
     private val audioManager: AudioManager
         get() = context.getSystemService(AudioManager::class.java)
@@ -52,6 +55,7 @@ class SystemCommandHandler @Inject constructor(
             "sleep"             -> trySleep()
             "wake"              -> tryWake()
             "shutdown"          -> tryShutdown()
+            "screen_record"     -> startScreenRecord()
             else                -> Log.w(TAG, "Unknown system action: ${cmd.action}")
         }
     }
@@ -100,6 +104,44 @@ class SystemCommandHandler @Inject constructor(
                     socket.sendResponse(ScreenshotResponse(status = "failed"))
                 }
             }.start()
+        }
+    }
+
+    fun handleCast(cmd: XRCommand) {
+        when (cmd.action) {
+            "start" -> XRAccessibilityService.instance?.showCastOverlay()
+            "transform" -> XRAccessibilityService.instance?.setCastTransform(
+                zoom = cmd.floatValue,
+                offsetY = cmd.y,
+                landscape = cmd.allowed,
+            )
+            "frame" -> {
+                val svc = XRAccessibilityService.instance
+                if (svc == null) {
+                    Log.w(TAG, "Cast frame received without accessibility service")
+                    return
+                }
+                if (!castDecoding.compareAndSet(false, true)) return
+                Thread {
+                    try {
+                        runCatching {
+                            val bytes = Base64.decode(cmd.data, Base64.NO_WRAP)
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        }.onSuccess { bitmap ->
+                            if (bitmap != null) svc.showCastFrame(bitmap)
+                        }.onFailure { e ->
+                            Log.w(TAG, "Cast frame decode failed: ${e.message}")
+                        }
+                    } finally {
+                        castDecoding.set(false)
+                    }
+                }.start()
+            }
+            "stop" -> {
+                castDecoding.set(false)
+                XRAccessibilityService.instance?.hideCastOverlay()
+            }
+            else -> Log.w(TAG, "Unknown cast action: ${cmd.action}")
         }
     }
 
@@ -180,6 +222,23 @@ class SystemCommandHandler @Inject constructor(
     private fun tryShutdown() {
         // Requires system permission; signal via accessibility
         Log.w(TAG, "Shutdown requested — requires system permissions on this device")
+    }
+
+    private fun startScreenRecord() {
+        val svc = XRAccessibilityService.instance
+        if (svc == null) {
+            Log.w(TAG, "Screen record requested but accessibility service is not running")
+            return
+        }
+        svc.openQuickSettingsAndTap(
+            listOf(
+                "Screen record",
+                "Screen recorder",
+                "Record screen",
+                "Screen Record",
+                "Recorder",
+            )
+        )
     }
 
     private fun listDirectory(path: String, socket: WebSocket) {

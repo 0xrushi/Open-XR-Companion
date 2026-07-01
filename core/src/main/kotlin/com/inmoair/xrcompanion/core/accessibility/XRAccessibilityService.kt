@@ -2,10 +2,20 @@ package com.inmoair.xrcompanion.core.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Display
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +38,7 @@ class XRAccessibilityService : AccessibilityService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var cursorOverlay: VirtualCursorOverlay? = null
+    private var castOverlay: CastOverlay? = null
     private var pendingVerticalScrollDelta = 0
     private var pendingHorizontalScrollDelta = 0
     private var scrollDispatching = false
@@ -48,6 +59,8 @@ class XRAccessibilityService : AccessibilityService() {
         scrollFlushJob = null
         cursorOverlay?.destroy()
         cursorOverlay = null
+        castOverlay?.destroy()
+        castOverlay = null
         lastEditableNode?.recycle()
         lastEditableNode = null
         instance = null
@@ -91,6 +104,39 @@ class XRAccessibilityService : AccessibilityService() {
     fun performBack() = performGlobalAction(GLOBAL_ACTION_BACK)
     fun performHome() = performGlobalAction(GLOBAL_ACTION_HOME)
     fun performRecents() = performGlobalAction(GLOBAL_ACTION_RECENTS)
+
+    fun openQuickSettingsAndTap(labels: List<String>) {
+        scope.launch {
+            performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+            delay(700)
+            if (tapFirstMatchingText(labels)) {
+                delay(700)
+                tapFirstMatchingText(listOf("Start", "Start recording", "Begin", "Record"))
+            } else {
+                Log.w(TAG, "No Quick Settings tile matched labels=$labels")
+            }
+        }
+    }
+
+    fun showCastOverlay() {
+        if (castOverlay == null) castOverlay = CastOverlay(this)
+        castOverlay?.show()
+    }
+
+    fun showCastFrame(bitmap: Bitmap) {
+        if (castOverlay == null) castOverlay = CastOverlay(this)
+        castOverlay?.showFrame(bitmap)
+    }
+
+    fun setCastTransform(zoom: Float, offsetY: Float, landscape: Boolean) {
+        if (castOverlay == null) castOverlay = CastOverlay(this)
+        castOverlay?.setTransform(zoom, offsetY, landscape)
+    }
+
+    fun hideCastOverlay() {
+        castOverlay?.destroy()
+        castOverlay = null
+    }
 
     // -----------------------------------------------------------------------
     // Touch / gesture injection
@@ -447,6 +493,57 @@ class XRAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun tapFirstMatchingText(labels: List<String>): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val target = findNodeByText(root, labels, depth = 0) ?: return false
+        val clicked = performClickOnNodeOrParent(target)
+        Log.v(TAG, "tapFirstMatchingText labels=$labels clicked=$clicked")
+        return clicked
+    }
+
+    private fun findNodeByText(
+        node: AccessibilityNodeInfo,
+        labels: List<String>,
+        depth: Int,
+    ): AccessibilityNodeInfo? {
+        if (depth > 12) return null
+        val text = node.text?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        if (labels.any { label ->
+                text.contains(label, ignoreCase = true) ||
+                    description.contains(label, ignoreCase = true)
+            }) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findNodeByText(child, labels, depth + 1)
+            child.recycle()
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun performClickOnNodeOrParent(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = AccessibilityNodeInfo.obtain(node)
+        var depth = 0
+        try {
+            while (current != null && depth < 8) {
+                if (current.isClickable && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+                val parent = current.parent?.let { AccessibilityNodeInfo.obtain(it) }
+                current.recycle()
+                current = parent
+                depth++
+            }
+        } finally {
+            current?.recycle()
+            node.recycle()
+        }
+        return false
+    }
+
     private fun clampToDisplay(x: Float, y: Float): Pair<Float, Float> {
         val metrics = resources.displayMetrics
         val maxX = (metrics.widthPixels - 1).coerceAtLeast(0).toFloat()
@@ -481,5 +578,126 @@ class XRAccessibilityService : AccessibilityService() {
     private fun buildGesture(path: Path, duration: Long, startTime: Long): GestureDescription {
         val stroke = GestureDescription.StrokeDescription(path, startTime, duration)
         return GestureDescription.Builder().addStroke(stroke).build()
+    }
+
+    private class CastOverlay(context: Context) {
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private val windowManager = context.getSystemService(WindowManager::class.java)
+        private val view = CastView(context)
+        private var attached = false
+
+        fun show() {
+            runOnMain { ensureAttached() }
+        }
+
+        fun showFrame(bitmap: Bitmap) {
+            runOnMain {
+                ensureAttached()
+                view.setBitmap(bitmap)
+            }
+        }
+
+        fun setTransform(zoom: Float, offsetY: Float, landscape: Boolean) {
+            runOnMain {
+                ensureAttached()
+                view.setTransform(zoom, offsetY, landscape)
+            }
+        }
+
+        fun destroy() {
+            runOnMain {
+                if (!attached) return@runOnMain
+                runCatching { windowManager.removeView(view) }
+                    .onFailure { Log.w(TAG, "Failed to remove cast overlay: ${it.message}") }
+                attached = false
+            }
+        }
+
+        private fun ensureAttached() {
+            if (attached) return
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.OPAQUE,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                setTitle("XR Phone Cast")
+            }
+            runCatching {
+                windowManager.addView(view, params)
+                attached = true
+            }.onFailure {
+                Log.w(TAG, "Failed to add cast overlay: ${it.message}")
+            }
+        }
+
+        private fun runOnMain(block: () -> Unit) {
+            if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post(block)
+        }
+    }
+
+    private class CastView(context: Context) : View(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val dst = RectF()
+        private var bitmap: Bitmap? = null
+        private var zoom: Float = 1f
+        private var offsetY: Float = 0f
+        private var landscape: Boolean = false
+
+        init {
+            setBackgroundColor(Color.BLACK)
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        fun setBitmap(next: Bitmap) {
+            val old = bitmap
+            bitmap = next
+            if (old !== next && old?.isRecycled == false) old.recycle()
+            invalidate()
+        }
+
+        fun setTransform(nextZoom: Float, nextOffsetY: Float, nextLandscape: Boolean) {
+            zoom = nextZoom.coerceIn(1f, 3f)
+            offsetY = nextOffsetY.coerceIn(-1f, 1f)
+            landscape = nextLandscape
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val bmp = bitmap ?: return
+            if (bmp.isRecycled || width == 0 || height == 0) return
+            val sourceW = if (landscape) bmp.height else bmp.width
+            val sourceH = if (landscape) bmp.width else bmp.height
+            val scale = minOf(width.toFloat() / sourceW, height.toFloat() / sourceH) * zoom
+            val drawW = sourceW * scale
+            val drawH = sourceH * scale
+            val left = (width - drawW) / 2f
+            val verticalTravel = if (drawH > height) {
+                (drawH - height) / 2f
+            } else {
+                height * 0.35f
+            }
+            val top = (height - drawH) / 2f + offsetY * verticalTravel
+            dst.set(left, top, left + drawW, top + drawH)
+            if (landscape) {
+                canvas.save()
+                canvas.rotate(90f, dst.centerX(), dst.centerY())
+                val rotatedDst = RectF(
+                    dst.centerX() - drawH / 2f,
+                    dst.centerY() - drawW / 2f,
+                    dst.centerX() + drawH / 2f,
+                    dst.centerY() + drawW / 2f,
+                )
+                canvas.drawBitmap(bmp, null, rotatedDst, paint)
+                canvas.restore()
+            } else {
+                canvas.drawBitmap(bmp, null, dst, paint)
+            }
+        }
     }
 }

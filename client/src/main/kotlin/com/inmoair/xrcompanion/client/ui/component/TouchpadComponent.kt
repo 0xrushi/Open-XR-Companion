@@ -1,5 +1,6 @@
 package com.inmoair.xrcompanion.client.ui.component
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -7,12 +8,18 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.inmoair.xrcompanion.client.ui.theme.TextSecondary
 import com.inmoair.xrcompanion.client.ui.theme.TouchpadBorder
 import com.inmoair.xrcompanion.client.ui.theme.TouchpadSurface
 import kotlinx.coroutines.Job
@@ -67,8 +74,8 @@ fun TouchpadSurface(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { size = it }
-            .background(TouchpadSurface, RoundedCornerShape(16.dp))
-            .border(1.dp, TouchpadBorder, RoundedCornerShape(16.dp))
+            .background(TouchpadSurface, RoundedCornerShape(24.dp))
+            .border(1.5.dp, TouchpadBorder, RoundedCornerShape(24.dp))
             .pointerInput(mode) {
                 val dragSlop    = viewConfiguration.touchSlop
                 val longPressMs = viewConfiguration.longPressTimeoutMillis
@@ -193,7 +200,36 @@ fun TouchpadSurface(
                     }
                 }
             }
-    )
+    ) {
+        Canvas(Modifier.matchParentSize().padding(18.dp)) {
+            val dotColor = Color(0xFF7E8BA2).copy(alpha = 0.18f)
+            val step = 18.dp.toPx()
+            var y = 0f
+            while (y <= size.height) {
+                var x = 0f
+                while (x <= size.width) {
+                    drawCircle(dotColor, 1.dp.toPx(), Offset(x, y))
+                    x += step
+                }
+                y += step
+            }
+
+            val icon = TextSecondary.copy(alpha = 0.58f)
+            val w = 42.dp.toPx()
+            val h = 54.dp.toPx()
+            val left = center.x - w / 2f
+            val top = center.y - h / 2f
+            drawRoundRect(
+                color = icon,
+                topLeft = Offset(left, top),
+                size = Size(w, h),
+                cornerRadius = CornerRadius(w / 2f, w / 2f),
+                style = Stroke(5.dp.toPx()),
+            )
+            drawLine(icon, Offset(center.x, top), Offset(center.x, top + h * 0.46f), 5.dp.toPx())
+            drawLine(icon, Offset(left, top + h * 0.36f), Offset(left + w, top + h * 0.36f), 5.dp.toPx())
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,8 +247,7 @@ fun VerticalScrollStrip(
         modifier = modifier
             .width(28.dp)
             .fillMaxHeight()
-            .background(TouchpadSurface, RoundedCornerShape(14.dp))
-            .border(1.dp, TouchpadBorder, RoundedCornerShape(14.dp))
+            .background(Color(0xFF1A2333), RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -237,7 +272,36 @@ fun VerticalScrollStrip(
                     }
                 }
             }
-    )
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val arrow = TextSecondary.copy(alpha = 0.85f)
+            val cx = size.width / 2f
+            drawPath(
+                androidx.compose.ui.graphics.Path().apply {
+                    moveTo(cx, 22.dp.toPx())
+                    lineTo(cx - 6.dp.toPx(), 30.dp.toPx())
+                    lineTo(cx + 6.dp.toPx(), 30.dp.toPx())
+                    close()
+                },
+                arrow,
+            )
+            drawPath(
+                androidx.compose.ui.graphics.Path().apply {
+                    moveTo(cx, size.height - 22.dp.toPx())
+                    lineTo(cx - 6.dp.toPx(), size.height - 30.dp.toPx())
+                    lineTo(cx + 6.dp.toPx(), size.height - 30.dp.toPx())
+                    close()
+                },
+                arrow,
+            )
+            drawRoundRect(
+                color = TextSecondary.copy(alpha = 0.56f),
+                topLeft = Offset(cx - 3.dp.toPx(), size.height / 2f - 24.dp.toPx()),
+                size = Size(6.dp.toPx(), 48.dp.toPx()),
+                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+            )
+        }
+    }
 }
 
 @Composable
@@ -251,8 +315,7 @@ fun HorizontalScrollStrip(
         modifier = modifier
             .fillMaxWidth()
             .height(28.dp)
-            .background(TouchpadSurface, RoundedCornerShape(14.dp))
-            .border(1.dp, TouchpadBorder, RoundedCornerShape(14.dp))
+            .background(Color(0xFF1A2333), RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -277,5 +340,34 @@ fun HorizontalScrollStrip(
                     }
                 }
             }
-    )
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val arrow = TextSecondary.copy(alpha = 0.85f)
+            val cy = size.height / 2f
+            drawPath(
+                androidx.compose.ui.graphics.Path().apply {
+                    moveTo(22.dp.toPx(), cy)
+                    lineTo(30.dp.toPx(), cy - 6.dp.toPx())
+                    lineTo(30.dp.toPx(), cy + 6.dp.toPx())
+                    close()
+                },
+                arrow,
+            )
+            drawPath(
+                androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width - 22.dp.toPx(), cy)
+                    lineTo(size.width - 30.dp.toPx(), cy - 6.dp.toPx())
+                    lineTo(size.width - 30.dp.toPx(), cy + 6.dp.toPx())
+                    close()
+                },
+                arrow,
+            )
+            drawRoundRect(
+                color = TextSecondary.copy(alpha = 0.56f),
+                topLeft = Offset(size.width / 2f - 42.dp.toPx(), cy - 3.dp.toPx()),
+                size = Size(84.dp.toPx(), 6.dp.toPx()),
+                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+            )
+        }
+    }
 }

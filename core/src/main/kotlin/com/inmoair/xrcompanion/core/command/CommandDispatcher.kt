@@ -27,6 +27,7 @@ class CommandDispatcher @Inject constructor(
             "screenshot"  -> systemHandler.handleScreenshot(cmd, socket)
             "file"        -> systemHandler.handleFile(cmd, socket)
             "spacewalker" -> spaceWalkerHandler.handle(cmd)
+            "cast"        -> systemHandler.handleCast(cmd)
             else          -> Log.w(TAG, "Unknown command type: ${cmd.type}")
         }
     }

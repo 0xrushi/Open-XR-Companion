@@ -1,5 +1,9 @@
 package com.inmoair.xrcompanion.client.ui.screen
 
+import android.app.Activity
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -14,13 +18,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.inmoair.xrcompanion.client.BuildConfig
 import com.inmoair.xrcompanion.client.network.ConnectionStatus
 import com.inmoair.xrcompanion.client.network.DiscoveredDevice
+import com.inmoair.xrcompanion.client.screenshot.LocalScreenshotCapturer
 import com.inmoair.xrcompanion.client.ui.theme.*
 import com.inmoair.xrcompanion.client.ui.viewmodel.DashboardUiState
 import com.inmoair.xrcompanion.client.ui.viewmodel.DashboardViewModel
@@ -35,25 +49,29 @@ fun DashboardScreen(
     onNavigateSettings: () -> Unit,
 ) {
     var showDeviceSheet by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val phoneCastLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val data = result.data
+        if (result.resultCode != Activity.RESULT_OK || data == null) {
+            viewModel.onPhoneCastFailed("Phone screen capture permission was cancelled")
+            return@rememberLauncherForActivityResult
+        }
+        viewModel.startPhoneCast(result.resultCode, data)
+    }
 
     Box(Modifier.fillMaxSize().background(DarkBackground)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            // App title
             item {
-                Text(
-                    "Smart Companion",
-                    style = MaterialTheme.typography.headlineLarge,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
+                DashboardHeader()
             }
-
-            // Connection card
             item {
-                ConnectionCard(
+                ReferenceDeviceCard(
                     uiState = uiState,
                     onScanClick = {
                         if (uiState.isScanning) viewModel.stopScan()
@@ -74,50 +92,541 @@ fun DashboardScreen(
                 }
             }
 
-            // Brightness card (only when connected)
-            if (uiState.connectionStatus == ConnectionStatus.CONNECTED) {
-                item {
-                    SliderCard(
-                        title       = "Brightness",
-                        icon        = Icons.Default.WbSunny,
-                        value       = uiState.brightness,
-                        unit        = "${(uiState.brightness * 100).toInt()}%",
-                        onValueChange = { viewModel.setBrightness(it) }
-                    )
-                }
-                item {
-                    SliderCard(
-                        title       = "Volume",
-                        icon        = Icons.Default.VolumeUp,
-                        value       = uiState.volume,
-                        unit        = "${(uiState.volume * 100).toInt()}%",
-                        onValueChange = { viewModel.setVolume(it) }
-                    )
-                }
-            }
-
-            // SpaceWalker card (always shown; controls disabled when not connected)
             item {
-                SpaceWalkerCard(
-                    uiState   = uiState,
-                    onZoomIn  = { viewModel.swZoomIn() },
-                    onZoomOut = { viewModel.swZoomOut() },
-                    onRotate  = { viewModel.swSetRotation(it) },
-                    onAddScreen    = { viewModel.swAddScreen() },
-                    onRemoveScreen = { viewModel.swRemoveScreen() },
+                DeviceControlPanel(
+                    brightness = uiState.brightness,
+                    volume = uiState.volume,
+                    onBrightnessChange = { viewModel.setBrightness(it) },
+                    onVolumeChange = { viewModel.setVolume(it) },
                 )
             }
-
-            // Quick action row
-            item { Spacer(Modifier.height(8.dp)) }
             item {
-                QuickActionsRow(
+                FeatureGrid(
                     onControl  = onNavigateControl,
-                    onApps     = onNavigateApps,
                     onFiles    = onNavigateFiles,
                     onSettings = onNavigateSettings,
-                    connected  = uiState.connectionStatus == ConnectionStatus.CONNECTED,
+                    onScreenCapture = { viewModel.requestScreenshot() },
+                    onScreenRecord = { viewModel.startScreenRecord() },
+                    onPhoneCast = {
+                        if (uiState.isPhoneCasting) {
+                            viewModel.stopPhoneCast()
+                        } else {
+                            viewModel.preparePhoneCastCapture()
+                            phoneCastLauncher.launch(LocalScreenshotCapturer.createCaptureIntent(context))
+                        }
+                    },
+                    phoneCastLabel = if (uiState.isPhoneCasting) "Stop cast" else "Phone cast",
                 )
+            }
+            if (uiState.isPhoneCasting) {
+                item {
+                    CastControlPanel(
+                        zoom = uiState.castZoom,
+                        offsetY = uiState.castOffsetY,
+                        landscape = uiState.castLandscape,
+                        onZoomChange = { viewModel.setCastZoom(it) },
+                        onOffsetYChange = { viewModel.setCastOffsetY(it) },
+                        onLandscapeChange = { viewModel.setCastLandscape(it) },
+                    )
+                }
+            }
+        }
+
+        uiState.screenshotBitmap?.let { bitmap ->
+            DashboardScreenshotSheet(
+                bitmap = bitmap,
+                isPhoneCast = false,
+                onCancel = { viewModel.dismissScreenshot() },
+                onDownload = {
+                    viewModel.saveScreenshotToGallery()
+                    viewModel.dismissScreenshot()
+                },
+            )
+        }
+        uiState.screenshotError?.let { err ->
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissScreenshot() },
+                title = { Text("Screenshot failed") },
+                text = { Text(err) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissScreenshot() }) { Text("OK") }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CastControlPanel(
+    zoom: Float,
+    offsetY: Float,
+    landscape: Boolean,
+    onZoomChange: (Float) -> Unit,
+    onOffsetYChange: (Float) -> Unit,
+    onLandscapeChange: (Boolean) -> Unit,
+) {
+    XRCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Phone cast",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "Rotate",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Switch(
+                checked = landscape,
+                onCheckedChange = onLandscapeChange,
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+        CastSlider(
+            title = "Zoom",
+            valueText = "${(zoom * 100).toInt()}%",
+            value = zoom,
+            valueRange = 1f..3f,
+            onValueChange = onZoomChange,
+        )
+        Spacer(Modifier.height(16.dp))
+        CastSlider(
+            title = "Move up/down",
+            valueText = "${(offsetY * 100).toInt()}%",
+            value = offsetY,
+            valueRange = -1f..1f,
+            onValueChange = onOffsetYChange,
+        )
+    }
+}
+
+@Composable
+private fun CastSlider(
+    title: String,
+    valueText: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            valueText,
+            style = MaterialTheme.typography.labelLarge,
+            color = AccentBlue,
+        )
+    }
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        colors = SliderDefaults.colors(
+            thumbColor = AccentBlue,
+            activeTrackColor = AccentBlue,
+            inactiveTrackColor = DividerColor,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun DashboardHeader() {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Smart Companion",
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontSize = 31.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                "v${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReferenceDeviceCard(
+    uiState: DashboardUiState,
+    onScanClick: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    val isConnected = uiState.connectionStatus == ConnectionStatus.CONNECTED
+    val isConnecting = uiState.connectionStatus == ConnectionStatus.CONNECTING ||
+        uiState.connectionStatus == ConnectionStatus.PAIRING
+    val battery = uiState.deviceState?.battery?.takeIf { it >= 0 } ?: 86
+    val name = when {
+        isConnected -> uiState.connectedDevice?.message?.deviceName ?: "INMO AIR3"
+        isConnecting -> "INMO AIR3"
+        else -> "INMO AIR3"
+    }
+
+    XRCard(
+        modifier = Modifier
+            .heightIn(min = 130.dp)
+            .clickable {
+                when {
+                    isConnected -> onDisconnect()
+                    !isConnecting -> onScanClick()
+                }
+            },
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChipEmblem(Modifier.size(92.dp))
+            Spacer(Modifier.width(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    name,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontSize = 29.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+                Spacer(Modifier.height(15.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(15.dp)
+                            .clip(CircleShape)
+                            .background(if (isConnected) StatusGreen else TextSecondary),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        when {
+                            isConnected -> "Connected"
+                            isConnecting -> "Connecting"
+                            uiState.isScanning -> "Scanning"
+                            else -> "Tap to scan"
+                        },
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Normal,
+                        ),
+                        color = TextPrimary.copy(alpha = 0.78f),
+                    )
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(26.dp),
+            ) {
+                Icon(
+                    Icons.Default.Wifi,
+                    contentDescription = null,
+                    tint = Color(0xFF2EA9FF),
+                    modifier = Modifier.size(31.dp),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "$battery%",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = StatusGreen,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Default.BatteryFull,
+                        contentDescription = null,
+                        tint = StatusGreen,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChipEmblem(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val teal = Color(0xFF4DFFF0)
+        val dimTeal = teal.copy(alpha = 0.34f)
+        val stroke = 4.dp.toPx()
+        val c = center
+        val r = size.minDimension * 0.38f
+
+        drawCircle(dimTeal, r, c, style = Stroke(stroke))
+        drawRoundRect(
+            color = Color(0xFF0B1020),
+            topLeft = Offset(c.x - r * 0.48f, c.y - r * 0.48f),
+            size = Size(r * 0.96f, r * 0.96f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()),
+            style = Stroke(stroke),
+        )
+        repeat(4) { i ->
+            val horizontal = i < 2
+            val sign = if (i % 2 == 0) -1f else 1f
+            if (horizontal) {
+                drawLine(
+                    teal.copy(alpha = 0.7f),
+                    Offset(c.x + sign * r * 0.75f, c.y - r * 0.18f),
+                    Offset(c.x + sign * r * 1.05f, c.y - r * 0.18f),
+                    stroke,
+                )
+                drawLine(
+                    teal.copy(alpha = 0.7f),
+                    Offset(c.x + sign * r * 0.75f, c.y + r * 0.18f),
+                    Offset(c.x + sign * r * 1.05f, c.y + r * 0.18f),
+                    stroke,
+                )
+            } else {
+                drawLine(
+                    teal.copy(alpha = 0.7f),
+                    Offset(c.x - r * 0.18f, c.y + sign * r * 0.75f),
+                    Offset(c.x - r * 0.18f, c.y + sign * r * 1.05f),
+                    stroke,
+                )
+                drawLine(
+                    teal.copy(alpha = 0.7f),
+                    Offset(c.x + r * 0.18f, c.y + sign * r * 0.75f),
+                    Offset(c.x + r * 0.18f, c.y + sign * r * 1.05f),
+                    stroke,
+                )
+            }
+        }
+        drawCircle(teal.copy(alpha = 0.12f), r * 1.12f, c)
+        drawCircle(teal.copy(alpha = 0.5f), r * 1.12f, c, style = Stroke(2.dp.toPx()))
+    }
+}
+
+@Composable
+private fun DeviceControlPanel(
+    brightness: Float,
+    volume: Float,
+    onBrightnessChange: (Float) -> Unit,
+    onVolumeChange: (Float) -> Unit,
+) {
+    XRCard {
+        ReferenceSlider(
+            title = "Brightness",
+            icon = Icons.Default.Settings,
+            value = brightness,
+            unit = "${(brightness * 100).toInt()}%",
+            onValueChange = onBrightnessChange,
+        )
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider(color = DividerColor, thickness = 1.dp)
+        Spacer(Modifier.height(18.dp))
+        ReferenceSlider(
+            title = "Volume",
+            icon = Icons.Default.VolumeUp,
+            value = volume,
+            unit = "${(volume * 100).toInt()}%",
+            onValueChange = onVolumeChange,
+        )
+    }
+}
+
+@Composable
+private fun ReferenceSlider(
+    title: String,
+    icon: ImageVector,
+    value: Float,
+    unit: String,
+    onValueChange: (Float) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(35.dp))
+        Spacer(Modifier.width(24.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    unit,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal),
+                    color = TextSecondary,
+                )
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                colors = SliderDefaults.colors(
+                    thumbColor = TextPrimary,
+                    activeTrackColor = AccentBlue,
+                    inactiveTrackColor = DividerColor,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeatureGrid(
+    onControl: () -> Unit,
+    onFiles: () -> Unit,
+    onSettings: () -> Unit,
+    onScreenCapture: () -> Unit,
+    onScreenRecord: () -> Unit,
+    onPhoneCast: () -> Unit,
+    phoneCastLabel: String,
+) {
+    val tiles = listOf(
+        Triple(Icons.Default.Gamepad, "Control mode", onControl),
+        Triple(Icons.Default.Folder, "File transfer", onFiles),
+        Triple(Icons.Default.Notifications, "Notification", onSettings),
+        Triple(Icons.Default.CameraAlt, "Screen capture", onScreenCapture),
+        Triple(Icons.Default.Videocam, "Screen record", onScreenRecord),
+        Triple(Icons.Default.Cast, phoneCastLabel, onPhoneCast),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        tiles.chunked(3).forEach { row ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                row.forEach { (icon, label, action) ->
+                    FeatureTile(
+                        icon = icon,
+                        label = label,
+                        onClick = action,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(3 - row.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeatureTile(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier
+            .aspectRatio(1.04f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DividerColor),
+        elevation = CardDefaults.cardElevation(0.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = AccentBlue,
+                modifier = Modifier.size(38.dp),
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp),
+                color = TextPrimary,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardScreenshotSheet(
+    bitmap: Bitmap,
+    isPhoneCast: Boolean,
+    onCancel: () -> Unit,
+    onDownload: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                .background(Color(0xFF1A1F26))
+                .padding(horizontal = 16.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                if (isPhoneCast) "Phone cast" else "Screen capture",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            )
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Screen capture",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(255.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black),
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f).height(58.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue),
+                ) {
+                    Text("Cancel", style = MaterialTheme.typography.titleMedium)
+                }
+                Button(
+                    onClick = onDownload,
+                    modifier = Modifier.weight(1f).height(58.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF171D24)),
+                ) {
+                    Icon(
+                        if (isPhoneCast) Icons.Default.Cast else Icons.Default.Download,
+                        contentDescription = null,
+                        tint = AccentBlue,
+                        modifier = Modifier.size(25.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        if (isPhoneCast) "Send" else "Download",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AccentBlue,
+                    )
+                }
             }
         }
     }
@@ -554,10 +1063,11 @@ private fun SpaceWalkerCard(
 fun XRCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = CardDark),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DividerColor),
         elevation = CardDefaults.cardElevation(0.dp),
     ) {
-        Column(Modifier.padding(16.dp), content = content)
+        Column(Modifier.padding(18.dp), content = content)
     }
 }
