@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class DashboardScreenshotSource { REMOTE, LOCAL_PHONE }
+enum class CastMode { SCREEN, LOCATION }
 
 data class DashboardUiState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
@@ -45,6 +46,7 @@ data class DashboardUiState(
     val screenshotError: String? = null,
     val screenshotSource: DashboardScreenshotSource = DashboardScreenshotSource.REMOTE,
     val isPhoneCasting: Boolean = false,
+    val castMode: CastMode = CastMode.SCREEN,
     val castZoom: Float = 1f,
     val castOffsetY: Float = 0f,
     val castLandscape: Boolean = false,
@@ -184,7 +186,7 @@ class DashboardViewModel @Inject constructor(
         )
     }
 
-    fun startPhoneCast(resultCode: Int, data: Intent) {
+    fun startPhoneCast(resultCode: Int, data: Intent, mode: CastMode = CastMode.SCREEN) {
         stopPhoneCast(sendStop = false)
         _uiState.value = _uiState.value.copy(
             isCapturingScreenshot = false,
@@ -192,11 +194,12 @@ class DashboardViewModel @Inject constructor(
             screenshotError = null,
             screenshotSource = DashboardScreenshotSource.LOCAL_PHONE,
             isPhoneCasting = true,
+            castMode = mode,
             castZoom = 1f,
             castOffsetY = 0f,
             castLandscape = false,
         )
-        commandSender.castStart()
+        commandSender.castStart(mode = mode.wireValue)
         commandSender.castTransform(zoom = 1f, offsetY = 0f, landscape = false)
         phoneCastStreamer = PhoneCastStreamer(
             context = appContext,
@@ -222,6 +225,7 @@ class DashboardViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             isPhoneCasting = false,
             isCapturingScreenshot = false,
+            castMode = CastMode.SCREEN,
         )
     }
 
@@ -330,3 +334,9 @@ class DashboardViewModel @Inject constructor(
         commandSender.spaceWalkerRemoveScreen()
     }
 }
+
+private val CastMode.wireValue: String
+    get() = when (this) {
+        CastMode.SCREEN -> "screen"
+        CastMode.LOCATION -> "location"
+    }

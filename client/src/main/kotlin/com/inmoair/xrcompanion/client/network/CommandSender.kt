@@ -125,7 +125,8 @@ class CommandSender @Inject constructor(
         )
 
     // --- phone cast ---
-    fun castStart() = send(XRCommand(type = "cast", action = "start"))
+    fun castStart(mode: String = "screen") =
+        send(XRCommand(type = "cast", action = "start", value = mode))
     fun castFrame(base64Jpeg: String) =
         send(XRCommand(type = "cast", action = "frame", data = base64Jpeg, format = "jpeg"))
     fun castTransform(zoom: Float, offsetY: Float, landscape: Boolean) =

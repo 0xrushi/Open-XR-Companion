@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Camera as GraphicsCamera
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -118,9 +119,9 @@ class XRAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun showCastOverlay() {
+    fun showCastOverlay(mode: String = "screen") {
         if (castOverlay == null) castOverlay = CastOverlay(this)
-        castOverlay?.show()
+        castOverlay?.show(mode)
     }
 
     fun showCastFrame(bitmap: Bitmap) {
@@ -586,8 +587,11 @@ class XRAccessibilityService : AccessibilityService() {
         private val view = CastView(context)
         private var attached = false
 
-        fun show() {
-            runOnMain { ensureAttached() }
+        fun show(mode: String) {
+            runOnMain {
+                ensureAttached()
+                view.setMode(mode)
+            }
         }
 
         fun showFrame(bitmap: Bitmap) {
@@ -642,8 +646,32 @@ class XRAccessibilityService : AccessibilityService() {
 
     private class CastView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(190, 125, 180, 255)
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+        }
+        private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(130, 0, 0, 0)
+            style = Paint.Style.FILL
+        }
+        private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(70, 120, 170, 255)
+            style = Paint.Style.STROKE
+            strokeWidth = 1.4f
+        }
+        private val horizonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(105, 100, 160, 255)
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
         private val dst = RectF()
+        private val shadowDst = RectF()
+        private val locationMatrix = android.graphics.Matrix()
+        private val clipPath = Path()
+        private val sceneCamera = GraphicsCamera()
         private var bitmap: Bitmap? = null
+        private var mode: String = "screen"
         private var zoom: Float = 1f
         private var offsetY: Float = 0f
         private var landscape: Boolean = false
@@ -651,12 +679,18 @@ class XRAccessibilityService : AccessibilityService() {
         init {
             setBackgroundColor(Color.BLACK)
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+            sceneCamera.setLocation(0f, 0f, -10f * resources.displayMetrics.density)
         }
 
         fun setBitmap(next: Bitmap) {
             val old = bitmap
             bitmap = next
             if (old !== next && old?.isRecycled == false) old.recycle()
+            invalidate()
+        }
+
+        fun setMode(nextMode: String) {
+            mode = if (nextMode == "location") "location" else "screen"
             invalidate()
         }
 
@@ -671,6 +705,10 @@ class XRAccessibilityService : AccessibilityService() {
             super.onDraw(canvas)
             val bmp = bitmap ?: return
             if (bmp.isRecycled || width == 0 || height == 0) return
+            if (mode == "location" && !landscape) {
+                drawLocationPlane(canvas, bmp)
+                return
+            }
             val sourceW = if (landscape) bmp.height else bmp.width
             val sourceH = if (landscape) bmp.width else bmp.height
             val scale = minOf(width.toFloat() / sourceW, height.toFloat() / sourceH) * zoom
@@ -697,6 +735,62 @@ class XRAccessibilityService : AccessibilityService() {
                 canvas.restore()
             } else {
                 canvas.drawBitmap(bmp, null, dst, paint)
+            }
+        }
+
+        private fun drawLocationPlane(canvas: Canvas, bmp: Bitmap) {
+            drawLocationBackdrop(canvas)
+
+            val scale = minOf(
+                width * 0.78f / bmp.width,
+                height * 0.88f / bmp.height,
+            ) * zoom
+            val drawW = bmp.width * scale
+            val drawH = bmp.height * scale
+            val cx = width * 0.5f
+            val cy = height * 0.58f + offsetY * height * 0.22f
+            dst.set(cx - drawW / 2f, cy - drawH / 2f, cx + drawW / 2f, cy + drawH / 2f)
+
+            locationMatrix.reset()
+            sceneCamera.save()
+            sceneCamera.rotateX(58f)
+            sceneCamera.getMatrix(locationMatrix)
+            sceneCamera.restore()
+            locationMatrix.preTranslate(-cx, -cy)
+            locationMatrix.postTranslate(cx, cy)
+
+            canvas.save()
+            canvas.concat(locationMatrix)
+
+            shadowDst.set(dst)
+            shadowDst.offset(0f, 18f)
+            canvas.drawRoundRect(shadowDst, 18f, 18f, shadowPaint)
+
+            clipPath.reset()
+            clipPath.addRoundRect(dst, 16f, 16f, Path.Direction.CW)
+            canvas.save()
+            canvas.clipPath(clipPath)
+            canvas.drawBitmap(bmp, null, dst, paint)
+            canvas.restore()
+            canvas.drawRoundRect(dst, 16f, 16f, borderPaint)
+            canvas.restore()
+        }
+
+        private fun drawLocationBackdrop(canvas: Canvas) {
+            val horizonY = height * 0.38f
+            val bottomY = height * 0.98f
+            val vanishingX = width * 0.5f
+            canvas.drawLine(width * 0.12f, horizonY, width * 0.88f, horizonY, horizonPaint)
+
+            for (i in 0..8) {
+                val startX = width * (0.08f + i * 0.105f)
+                canvas.drawLine(startX, bottomY, vanishingX, horizonY, gridPaint)
+            }
+            for (i in 1..7) {
+                val t = i / 7f
+                val y = horizonY + (bottomY - horizonY) * t * t
+                val inset = width * 0.43f * (1f - t)
+                canvas.drawLine(inset, y, width - inset, y, gridPaint)
             }
         }
     }

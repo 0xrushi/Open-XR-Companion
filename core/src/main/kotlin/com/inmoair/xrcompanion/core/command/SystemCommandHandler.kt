@@ -109,7 +109,7 @@ class SystemCommandHandler @Inject constructor(
 
     fun handleCast(cmd: XRCommand) {
         when (cmd.action) {
-            "start" -> XRAccessibilityService.instance?.showCastOverlay()
+            "start" -> XRAccessibilityService.instance?.showCastOverlay(cmd.value.ifBlank { "screen" })
             "transform" -> XRAccessibilityService.instance?.setCastTransform(
                 zoom = cmd.floatValue,
                 offsetY = cmd.y,

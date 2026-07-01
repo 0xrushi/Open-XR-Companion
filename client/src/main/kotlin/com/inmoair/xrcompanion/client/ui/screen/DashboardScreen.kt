@@ -36,6 +36,7 @@ import com.inmoair.xrcompanion.client.network.ConnectionStatus
 import com.inmoair.xrcompanion.client.network.DiscoveredDevice
 import com.inmoair.xrcompanion.client.screenshot.LocalScreenshotCapturer
 import com.inmoair.xrcompanion.client.ui.theme.*
+import com.inmoair.xrcompanion.client.ui.viewmodel.CastMode
 import com.inmoair.xrcompanion.client.ui.viewmodel.DashboardUiState
 import com.inmoair.xrcompanion.client.ui.viewmodel.DashboardViewModel
 
@@ -49,6 +50,7 @@ fun DashboardScreen(
     onNavigateSettings: () -> Unit,
 ) {
     var showDeviceSheet by remember { mutableStateOf(false) }
+    var pendingCastMode by remember { mutableStateOf(CastMode.SCREEN) }
     val context = LocalContext.current
     val phoneCastLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -58,7 +60,7 @@ fun DashboardScreen(
             viewModel.onPhoneCastFailed("Phone screen capture permission was cancelled")
             return@rememberLauncherForActivityResult
         }
-        viewModel.startPhoneCast(result.resultCode, data)
+        viewModel.startPhoneCast(result.resultCode, data, pendingCastMode)
     }
 
     Box(Modifier.fillMaxSize().background(DarkBackground)) {
@@ -111,16 +113,32 @@ fun DashboardScreen(
                         if (uiState.isPhoneCasting) {
                             viewModel.stopPhoneCast()
                         } else {
+                            pendingCastMode = CastMode.SCREEN
+                            viewModel.preparePhoneCastCapture()
+                            phoneCastLauncher.launch(LocalScreenshotCapturer.createCaptureIntent(context))
+                        }
+                    },
+                    onLocationCast = {
+                        if (uiState.isPhoneCasting) {
+                            viewModel.stopPhoneCast()
+                        } else {
+                            pendingCastMode = CastMode.LOCATION
                             viewModel.preparePhoneCastCapture()
                             phoneCastLauncher.launch(LocalScreenshotCapturer.createCaptureIntent(context))
                         }
                     },
                     phoneCastLabel = if (uiState.isPhoneCasting) "Stop cast" else "Phone cast",
+                    locationCastLabel = if (uiState.isPhoneCasting && uiState.castMode == CastMode.LOCATION) {
+                        "Stop cast"
+                    } else {
+                        "Location cast"
+                    },
                 )
             }
             if (uiState.isPhoneCasting) {
                 item {
                     CastControlPanel(
+                        title = if (uiState.castMode == CastMode.LOCATION) "Location cast" else "Phone cast",
                         zoom = uiState.castZoom,
                         offsetY = uiState.castOffsetY,
                         landscape = uiState.castLandscape,
@@ -158,6 +176,7 @@ fun DashboardScreen(
 
 @Composable
 private fun CastControlPanel(
+    title: String,
     zoom: Float,
     offsetY: Float,
     landscape: Boolean,
@@ -168,7 +187,7 @@ private fun CastControlPanel(
     XRCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Phone cast",
+                title,
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                 modifier = Modifier.weight(1f),
             )
@@ -487,7 +506,9 @@ private fun FeatureGrid(
     onScreenCapture: () -> Unit,
     onScreenRecord: () -> Unit,
     onPhoneCast: () -> Unit,
+    onLocationCast: () -> Unit,
     phoneCastLabel: String,
+    locationCastLabel: String,
 ) {
     val tiles = listOf(
         Triple(Icons.Default.Gamepad, "Control mode", onControl),
@@ -496,6 +517,7 @@ private fun FeatureGrid(
         Triple(Icons.Default.CameraAlt, "Screen capture", onScreenCapture),
         Triple(Icons.Default.Videocam, "Screen record", onScreenRecord),
         Triple(Icons.Default.Cast, phoneCastLabel, onPhoneCast),
+        Triple(Icons.Default.LocationOn, locationCastLabel, onLocationCast),
     )
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         tiles.chunked(3).forEach { row ->
