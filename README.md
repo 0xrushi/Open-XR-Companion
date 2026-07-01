@@ -15,9 +15,12 @@ JSON command protocol.
 ### Smart Companion
 
 <p align="center">
-  <img width="22%" alt="Smart Companion controls" src="https://github.com/user-attachments/assets/10d7f04d-4033-4627-9352-a289032d4b19" />
-  <img width="22%" alt="Smart Companion remote" src="https://github.com/user-attachments/assets/0e93d5c4-ce81-4fbb-b7c5-8cffff8954db" />
-  <img width="22%" alt="Smart Companion app manager" src="https://github.com/user-attachments/assets/906af105-0f03-4863-903a-28b26d7ca21c" />
+  <img width="22%" height="1280" alt="IMAGE 2026-07-01 03:55:31" src="https://github.com/user-attachments/assets/b74c5043-79a8-421d-8f46-553b577600ad" />
+<img width="22%" height="1280" alt="IMAGE 2026-07-01 03:55:28" src="https://github.com/user-attachments/assets/4a2325c8-9a25-4f7e-9f16-86a71a979964" />
+<img width="22%" height="1280" alt="IMAGE 2026-07-01 03:55:25" src="https://github.com/user-attachments/assets/3d42accf-b9a1-46b0-960d-7d782a5da7b3" />
+<img width="22%" height="1280" alt="IMAGE 2026-07-01 03:55:21" src="https://github.com/user-attachments/assets/699b455a-9a66-4639-8f3e-280dae6f4d55" />
+<img width="22%" height="1280" alt="IMAGE 2026-07-01 03:55:17" src="https://github.com/user-attachments/assets/5dc03fdb-6c54-4e9d-83ac-7e2dc1c5ef1a" />
+
 </p>
 
 ### Core
